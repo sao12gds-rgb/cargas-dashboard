@@ -211,7 +211,7 @@ st.markdown(
 # ============================================================
 with st.sidebar:
     st.header("📁 Arquivos")
-    st.info("Carregue as 5 abas do seu sistema de controle ou as planilhas de origem")
+    st.info("Carregue os arquivos do seu sistema de controle")
     
     arquivo_sistema = st.file_uploader(
         "1) Relatório do Sistema (AWBs ativas)",
@@ -243,7 +243,6 @@ if arquivo_sistema is None:
     st.info("Carregue pelo menos o Relatório do Sistema para iniciar a análise.")
     st.stop()
 
-# Carregar arquivo do sistema
 try:
     df_sistema_raw = carregar_arquivo(arquivo_sistema)
 except Exception as exc:
@@ -254,7 +253,6 @@ if df_sistema_raw.empty:
     st.warning("O arquivo do Sistema está vazio.")
     st.stop()
 
-# Carregar arquivos opcionais de pendência
 df_pendencias_raw = pd.DataFrame()
 if arquivo_pendencias is not None:
     try:
@@ -300,11 +298,8 @@ if col_awb is None or col_sla is None:
     st.write("Colunas encontradas:", list(df.columns))
     st.stop()
 
-# Normalizar dados
 df_work = df.copy()
 df_work["AWB"] = df_work[col_awb].apply(normalizar_awb)
-
-# SLA apenas do Relatório do Sistema (obrigatório)
 df_work["SLA_dt"] = pd.to_datetime(df_work[col_sla], errors="coerce", dayfirst=True)
 df_work["Data Hoje"] = pd.Timestamp.now().date()
 
@@ -333,7 +328,6 @@ if not df_pendencias_raw.empty:
     col_pend_awb = encontrar_coluna(df_pend, ["AWB", "Numero AWB", "Número AWB", "AWBNumber"])
     if col_pend_awb:
         df_pend["AWB_Normalizada"] = df_pend[col_pend_awb].apply(normalizar_awb)
-        df_pend["Tipo"] = "PENDÊNCIA"
 
 df_pend_corp = pd.DataFrame()
 if not df_pendencia_corp_raw.empty:
@@ -341,7 +335,6 @@ if not df_pendencia_corp_raw.empty:
     col_corp_awb = encontrar_coluna(df_pend_corp, ["AWB", "Numero AWB", "Número AWB", "AWBNumber"])
     if col_corp_awb:
         df_pend_corp["AWB_Normalizada"] = df_pend_corp[col_corp_awb].apply(normalizar_awb)
-        df_pend_corp["Tipo"] = "PENDÊNCIA CORP"
 
 df_avarias = pd.DataFrame()
 if not df_avarias_raw.empty:
@@ -349,7 +342,6 @@ if not df_avarias_raw.empty:
     col_avar_awb = encontrar_coluna(df_avarias, ["AWB", "Numero AWB", "Número AWB", "AWBNumber"])
     if col_avar_awb:
         df_avarias["AWB_Normalizada"] = df_avarias[col_avar_awb].apply(normalizar_awb)
-        df_avarias["Tipo"] = "AVARIA"
 
 df_finalizadas = pd.DataFrame()
 if not df_finalizadas_raw.empty:
@@ -357,7 +349,6 @@ if not df_finalizadas_raw.empty:
     col_fin_awb = encontrar_coluna(df_finalizadas, ["AWB", "Numero AWB", "Número AWB", "AWBNumber"])
     if col_fin_awb:
         df_finalizadas["AWB_Normalizada"] = df_finalizadas[col_fin_awb].apply(normalizar_awb)
-        df_finalizadas["Tipo"] = "FINALIZADA"
 
 
 # ============================================================
@@ -368,12 +359,10 @@ def classificar_status_automatico(row: pd.Series) -> str:
     sla = row.get("SLA_dt")
     hoje = pd.Timestamp.now().normalize()
     
-    # Verificar FINALIZADAS (prioridade máxima)
     if not df_finalizadas.empty and "AWB_Normalizada" in df_finalizadas.columns:
         if awb in df_finalizadas["AWB_Normalizada"].values:
             return "FINALIZADO"
     
-    # Verificar PENDÊNCIAS
     em_pend = False
     if not df_pend.empty and "AWB_Normalizada" in df_pend.columns:
         if awb in df_pend["AWB_Normalizada"].values:
@@ -385,18 +374,12 @@ def classificar_status_automatico(row: pd.Series) -> str:
     if em_pend:
         return "CARGA NA PENDÊNCIA"
     
-    # Verificar AVARIAS
     if not df_avarias.empty and "AWB_Normalizada" in df_avarias.columns:
         if awb in df_avarias["AWB_Normalizada"].values:
             return "CARGA COM AVARIA"
     
-    # SLA apenas do Relatório do Sistema (obrigatório)
-    # Se não tiver SLA, significa que veio de outra aba (opcional)
     if pd.isna(sla):
-        # Se não tem SLA, pode ser de aba opcional
-        if not df_finalizadas.empty or not df_pend.empty or not df_avarias.empty:
-            return "SEM SLA"
-        return "MONITORAR"
+        return "SEM SLA"
     
     sla_norm = sla.normalize()
     if sla_norm == hoje:
@@ -423,8 +406,7 @@ def calcular_criticidade(status: str) -> str:
 df_work["Status Final"] = df_work.apply(classificar_status_automatico, axis=1)
 df_work["Criticidade"] = df_work["Status Final"].apply(calcular_criticidade)
 df_work["Dias em Atraso"] = (pd.Timestamp.now().normalize() - df_work["SLA_dt"].dt.normalize()).dt.days
-df_work["Dias em Atraso"] = df_work["Dias em Atraso"].apply(lambda x: max(0, x) if not pd.isna(x) else 0)
-df_work["Não Finalizado"] = df_work["Status Final"] != "FINALIZADO"
+df_work["Dias em Atraso"] = df_work["Dias em Atraso"].apply(lambda x: max(0, int(x)) if not pd.isna(x) else 0)
 
 
 # ============================================================
@@ -433,24 +415,24 @@ df_work["Não Finalizado"] = df_work["Status Final"] != "FINALIZADO"
 with st.sidebar:
     st.header("🔎 Filtros")
     
-    if col_origem and "Origem" in df_work.columns:
-        origens = ["Todos"] + sorted(df_work["Origem"].dropna().astype(str).unique())
+    if "Origem" in df_work.columns:
+        origens = ["Todos"] + sorted([x for x in df_work["Origem"].dropna().astype(str).unique() if x != "-"])
         origem_sel = st.selectbox("Origem", origens, index=0)
         if origem_sel != "Todos":
             df_work = df_work[df_work["Origem"].astype(str) == str(origem_sel)]
     
-    if col_destino and "Destino" in df_work.columns:
-        destinos = ["Todos"] + sorted(df_work["Destino"].dropna().astype(str).unique())
+    if "Destino" in df_work.columns:
+        destinos = ["Todos"] + sorted([x for x in df_work["Destino"].dropna().astype(str).unique() if x != "-"])
         destino_sel = st.multiselect("Destino", destinos, default=["Todos"])
         if destino_sel and "Todos" not in destino_sel:
             df_work = df_work[df_work["Destino"].astype(str).isin(destino_sel)]
     
-    status_opts = ["Todos"] + sorted(df_work["Status Final"].dropna().unique())
+    status_opts = ["Todos"] + sorted([x for x in df_work["Status Final"].unique() if pd.notna(x)])
     status_sel = st.multiselect("Status Final", status_opts, default=["Todos"])
     if status_sel and "Todos" not in status_sel:
         df_work = df_work[df_work["Status Final"].isin(status_sel)]
     
-    crit_opts = ["Todos"] + sorted(df_work["Criticidade"].dropna().unique())
+    crit_opts = ["Todos"] + sorted([x for x in df_work["Criticidade"].unique() if pd.notna(x)])
     crit_sel = st.multiselect("Criticidade", crit_opts, default=["Todos"])
     if crit_sel and "Todos" not in crit_sel:
         df_work = df_work[df_work["Criticidade"].isin(crit_sel)]
@@ -461,7 +443,7 @@ if df_work.empty:
 
 
 # ============================================================
-# KPIs PRINCIPAIS
+# KPIs
 # ============================================================
 st.markdown('<div class="section-title">📊 Resumo Geral</div>', unsafe_allow_html=True)
 
@@ -491,7 +473,8 @@ with c6:
 with c7:
     render_kpi("No Piso", format_int(piso), f"{format_pct(piso/total*100 if total else 0)}")
 with c8:
-    render_kpi("Dias atrasadas (média)", format_float(df_work[df_work["Dias em Atraso"] > 0]["Dias em Atraso"].mean()), "Cargas fora SLA")
+    dias_media = df_work[df_work["Dias em Atraso"] > 0]["Dias em Atraso"].mean()
+    render_kpi("Dias atrasadas (média)", format_float(dias_media), "Cargas fora SLA")
 
 
 # ============================================================
@@ -518,37 +501,53 @@ with tab_resumo:
     with c1:
         status_dist = df_work["Status Final"].value_counts().reset_index()
         status_dist.columns = ["Status", "Quantidade"]
-        fig = px.pie(status_dist, values="Quantidade", names="Status", hole=0.55, 
-                     title="Distribuição de Status")
-        fig.update_layout(height=400, margin=dict(l=20, r=20, t=55, b=20))
-        st.plotly_chart(fig, use_container_width=True)
+        status_dist["Quantidade"] = status_dist["Quantidade"].astype(int)
+        if not status_dist.empty:
+            fig = px.pie(status_dist, values="Quantidade", names="Status", hole=0.55, 
+                         title="Distribuição de Status")
+            fig.update_layout(height=400, margin=dict(l=20, r=20, t=55, b=20))
+            st.plotly_chart(fig, use_container_width=True)
     
     with c2:
         crit_dist = df_work["Criticidade"].value_counts().reset_index()
         crit_dist.columns = ["Criticidade", "Quantidade"]
-        fig = px.pie(crit_dist, values="Quantidade", names="Criticidade", hole=0.55,
-                     title="Distribuição de Criticidade")
+        crit_dist["Quantidade"] = crit_dist["Quantidade"].astype(int)
+        if not crit_dist.empty:
+            fig = px.pie(crit_dist, values="Quantidade", names="Criticidade", hole=0.55,
+                         title="Distribuição de Criticidade")
+            fig.update_layout(height=400, margin=dict(l=20, r=20, t=55, b=20))
+            st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown('<div class="section-title">Distribuição por Faixa de Dias em Atraso</div>', unsafe_allow_html=True)
+    
+    df_atraso = df_work[df_work["Dias em Atraso"] > 0].copy()
+    if not df_atraso.empty:
+        def categorizar_dias(dias):
+            if dias <= 1:
+                return "0-1 dia"
+            elif dias <= 3:
+                return "2-3 dias"
+            elif dias <= 7:
+                return "4-7 dias"
+            elif dias <= 30:
+                return "8-30 dias"
+            else:
+                return ">30 dias"
+        
+        df_atraso["Categoria"] = df_atraso["Dias em Atraso"].apply(categorizar_dias)
+        dias_atraso = df_atraso.groupby("Categoria").size().reset_index(name="Quantidade")
+        dias_atraso["Quantidade"] = dias_atraso["Quantidade"].astype(int)
+        
+        ordem = ["0-1 dia", "2-3 dias", "4-7 dias", "8-30 dias", ">30 dias"]
+        dias_atraso["Categoria"] = pd.Categorical(dias_atraso["Categoria"], categories=ordem, ordered=True)
+        dias_atraso = dias_atraso.sort_values("Categoria")
+        
+        fig = px.bar(dias_atraso, x="Categoria", y="Quantidade", 
+                    title="Distribuição de Dias em Atraso")
         fig.update_layout(height=400, margin=dict(l=20, r=20, t=55, b=20))
         st.plotly_chart(fig, use_container_width=True)
-    
-    st.markdown('<div class="section-title">Cargas por Criticidade</div>', unsafe_allow_html=True)
-    
-    c3, c4 = st.columns(2)
-    
-    with c3:
-        status_crit = df_work.groupby("Status Final")["Criticidade"].value_counts().reset_index(name="Quantidade")
-        fig = px.bar(status_crit, x="Status Final", y="Quantidade", color="Criticidade", 
-                     title="Status por Criticidade", barmode="stack")
-        fig.update_layout(height=400, margin=dict(l=20, r=20, t=55, b=20))
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with c4:
-        dias_atraso = df_work[df_work["Dias em Atraso"] > 0].groupby(pd.cut(df_work["Dias em Atraso"], 
-                     bins=[0, 1, 3, 7, 30, 1000])).size().reset_index(name="Quantidade")
-        dias_atraso.columns = ["Faixa", "Quantidade"]
-        fig = px.bar(dias_atraso, x="Faixa", y="Quantidade", title="Distribuição de Dias em Atraso")
-        fig.update_layout(height=400, margin=dict(l=20, r=20, t=55, b=20))
-        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Nenhuma carga em atraso para exibir.")
 
 
 # ============================================================
@@ -563,25 +562,25 @@ with tab_criticas:
         f"""
         <div class="alert-card">
             <b>{format_int(len(df_criticas))}</b> cargas com criticidade ALTA encontradas.
-            Estas cargas estão atrasadas e requerem ação imediata.
         </div>
         """,
         unsafe_allow_html=True,
     )
     
     colunas_vis = ["AWB", "Status Final", "Criticidade", "Dias em Atraso", "Status Sistema"]
-    if col_origem:
+    if "Origem" in df_criticas.columns:
         colunas_vis.insert(2, "Origem")
-    if col_destino:
+    if "Destino" in df_criticas.columns:
         colunas_vis.insert(3, "Destino")
     
     colunas_vis = [c for c in colunas_vis if c in df_criticas.columns]
     
-    st.dataframe(
-        df_criticas[colunas_vis].sort_values("Dias em Atraso", ascending=False),
-        use_container_width=True,
-        hide_index=True
-    )
+    if not df_criticas.empty:
+        st.dataframe(
+            df_criticas[colunas_vis].sort_values("Dias em Atraso", ascending=False),
+            use_container_width=True,
+            hide_index=True
+        )
 
 
 # ============================================================
@@ -596,25 +595,19 @@ with tab_pendencias:
         f"""
         <div class="insight-box">
             <b>{format_int(len(df_pend_vis))}</b> cargas na pendência.
-            Estas cargas possuem tratativa aberta e estão sendo acompanhadas.
         </div>
         """,
         unsafe_allow_html=True,
     )
     
     colunas_vis = ["AWB", "Status Final", "Criticidade", "Status Sistema"]
-    if col_origem:
+    if "Origem" in df_pend_vis.columns:
         colunas_vis.insert(2, "Origem")
-    if col_destino:
-        colunas_vis.insert(3, "Destino")
     
     colunas_vis = [c for c in colunas_vis if c in df_pend_vis.columns]
     
-    st.dataframe(
-        df_pend_vis[colunas_vis].sort_values("Criticidade"),
-        use_container_width=True,
-        hide_index=True
-    )
+    if not df_pend_vis.empty:
+        st.dataframe(df_pend_vis[colunas_vis], use_container_width=True, hide_index=True)
 
 
 # ============================================================
@@ -635,18 +628,13 @@ with tab_avarias:
     )
     
     colunas_vis = ["AWB", "Status Final", "Criticidade", "Status Sistema"]
-    if col_origem:
+    if "Origem" in df_avar_vis.columns:
         colunas_vis.insert(2, "Origem")
-    if col_destino:
-        colunas_vis.insert(3, "Destino")
     
     colunas_vis = [c for c in colunas_vis if c in df_avar_vis.columns]
     
-    st.dataframe(
-        df_avar_vis[colunas_vis],
-        use_container_width=True,
-        hide_index=True
-    )
+    if not df_avar_vis.empty:
+        st.dataframe(df_avar_vis[colunas_vis], use_container_width=True, hide_index=True)
 
 
 # ============================================================
@@ -667,18 +655,13 @@ with tab_finalizadas:
     )
     
     colunas_vis = ["AWB", "Status Final", "Status Sistema"]
-    if col_origem:
+    if "Origem" in df_fin_vis.columns:
         colunas_vis.insert(2, "Origem")
-    if col_destino:
-        colunas_vis.insert(3, "Destino")
     
     colunas_vis = [c for c in colunas_vis if c in df_fin_vis.columns]
     
-    st.dataframe(
-        df_fin_vis[colunas_vis],
-        use_container_width=True,
-        hide_index=True
-    )
+    if not df_fin_vis.empty:
+        st.dataframe(df_fin_vis[colunas_vis], use_container_width=True, hide_index=True)
 
 
 # ============================================================
@@ -687,18 +670,14 @@ with tab_finalizadas:
 with tab_exportacao:
     st.markdown('<div class="section-title">📥 Base Completa & Exportações</div>', unsafe_allow_html=True)
     
-    # Preparar colunas para exportação
     colunas_export = ["AWB", "Status Final", "Criticidade", "Dias em Atraso", "Status Sistema"]
-    if col_origem and "Origem" in df_work.columns:
+    if "Origem" in df_work.columns:
         colunas_export.insert(2, "Origem")
-    if col_destino and "Destino" in df_work.columns:
-        colunas_export.insert(3, "Destino")
     
     colunas_export = [c for c in colunas_export if c in df_work.columns]
     
     st.dataframe(df_work[colunas_export], use_container_width=True, hide_index=True)
     
-    # Preparar múltiplas abas para Excel
     abas_export = {
         "Base Filtrada": df_work[colunas_export],
         "Críticas": df_work[df_work["Criticidade"] == "ALTA"][colunas_export],
@@ -724,9 +703,4 @@ with tab_exportacao:
     )
 
 
-# ============================================================
-# RODAPÉ
-# ============================================================
-st.caption(
-    "Dashboard de Controle de Cargas — Análise integrada com classificação automática de status, criticidade e exportação de relatórios."
-)
+st.caption("Dashboard de Controle de Cargas — Análise integrada com classificação automática de status, criticidade e exportação de relatórios.")
