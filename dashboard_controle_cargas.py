@@ -303,6 +303,8 @@ if col_awb is None or col_sla is None:
 # Normalizar dados
 df_work = df.copy()
 df_work["AWB"] = df_work[col_awb].apply(normalizar_awb)
+
+# SLA apenas do Relatório do Sistema (obrigatório)
 df_work["SLA_dt"] = pd.to_datetime(df_work[col_sla], errors="coerce", dayfirst=True)
 df_work["Data Hoje"] = pd.Timestamp.now().date()
 
@@ -313,8 +315,13 @@ else:
 
 if col_origem:
     df_work["Origem"] = df_work[col_origem]
+else:
+    df_work["Origem"] = "-"
+    
 if col_destino:
     df_work["Destino"] = df_work[col_destino]
+else:
+    df_work["Destino"] = "-"
 
 
 # ============================================================
@@ -383,9 +390,13 @@ def classificar_status_automatico(row: pd.Series) -> str:
         if awb in df_avarias["AWB_Normalizada"].values:
             return "CARGA COM AVARIA"
     
-    # Validar SLA
+    # SLA apenas do Relatório do Sistema (obrigatório)
+    # Se não tiver SLA, significa que veio de outra aba (opcional)
     if pd.isna(sla):
-        return "SEM SLA"
+        # Se não tem SLA, pode ser de aba opcional
+        if not df_finalizadas.empty or not df_pend.empty or not df_avarias.empty:
+            return "SEM SLA"
+        return "MONITORAR"
     
     sla_norm = sla.normalize()
     if sla_norm == hoje:
