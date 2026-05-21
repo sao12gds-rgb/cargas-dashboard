@@ -125,27 +125,48 @@ with st.sidebar:
     )
 
 if arquivo_sistema is None:
-    st.info("Carregue o Relatório do Sistema para iniciar.")
+    st.info("📂 Carregue o Relatório do Sistema para iniciar.")
     st.stop()
 
 # Carregar Sistema
-try:
-    df_sistema_raw = pd.read_csv(arquivo_sistema, sep=None, engine="python") if arquivo_sistema.name.endswith(".csv") else pd.read_excel(arquivo_sistema)
-except Exception as e:
-    st.error(f"Erro ao ler Sistema: {e}")
-    st.stop()
+with st.spinner("⏳ Processando Relatório do Sistema..."):
+    try:
+        df_sistema_raw = pd.read_csv(arquivo_sistema, sep=None, engine="python") if arquivo_sistema.name.endswith(".csv") else pd.read_excel(arquivo_sistema)
+        # Normalizar nomes de colunas (remover espaços)
+        df_sistema_raw.columns = df_sistema_raw.columns.str.strip()
+        st.success(f"✅ Relatório do Sistema carregado! ({len(df_sistema_raw)} linhas)")
+    except Exception as e:
+        st.error(f"❌ Erro ao ler Sistema: {e}")
+        st.stop()
 
 if df_sistema_raw.empty:
-    st.warning("Arquivo vazio!")
+    st.error("❌ Arquivo vazio!")
     st.stop()
 
 # Carregar Consolidada (opcional)
 abas_consolidadas = {}
 if arquivo_consolidado is not None:
-    try:
-        abas_consolidadas = pd.read_excel(arquivo_consolidado, sheet_name=None)
-    except Exception as e:
-        st.error(f"Erro ao ler Consolidada: {e}")
+    with st.spinner("⏳ Processando Planilha Consolidada..."):
+        try:
+            excel_file = pd.ExcelFile(arquivo_consolidado)
+            abas_consolidadas = {}
+            
+            for sheet_name in excel_file.sheet_names:
+                if sheet_name.lower() == "avarias":
+                    # AVARIAS tem header estranho, pula primeira linha
+                    df_aba = pd.read_excel(arquivo_consolidado, sheet_name=sheet_name, skiprows=1)
+                else:
+                    df_aba = pd.read_excel(arquivo_consolidado, sheet_name=sheet_name)
+                
+                # Normalizar nomes de colunas (remover espaços)
+                df_aba.columns = df_aba.columns.str.strip()
+                abas_consolidadas[sheet_name] = df_aba
+            
+            st.success(f"✅ Planilha Consolidada carregada! ({len(abas_consolidadas)} abas encontradas)")
+        except Exception as e:
+            st.error(f"❌ Erro ao ler Consolidada: {e}")
+else:
+    st.warning("⚠️ Nenhuma planilha consolidada carregada. Usando apenas Relatório do Sistema.")
 
 
 # ============================================================
@@ -194,22 +215,43 @@ df_avarias = pd.DataFrame()
 df_finalizadas = pd.DataFrame()
 
 if abas_consolidadas:
+    st.info("🔄 Processando abas consolidadas...")
+    
     # Localizar abas
+    abas_encontradas = []
     for nome_aba, df_aba in abas_consolidadas.items():
+        # Normalizar nomes de colunas (remover espaços)
+        df_aba.columns = df_aba.columns.str.strip()
+        
         nome_lower = nome_aba.lower()
-        col_aba_awb = encontrar_coluna(df_aba, ["AWB", "numero", "awb"])
+        
+        # Procurar coluna AWB (com espaços ou sem)
+        col_aba_awb = None
+        for col in df_aba.columns:
+            if "awb" in col.lower():
+                col_aba_awb = col
+                break
         
         if col_aba_awb:
             df_aba["AWB_Norm"] = df_aba[col_aba_awb].apply(normalizar_awb)
         
         if "pend" in nome_lower and "corp" not in nome_lower:
             df_pendencias = df_aba.copy()
+            abas_encontradas.append(f"✅ PENDÊNCIAS ({len(df_aba)} linhas)")
         elif "corp" in nome_lower:
             df_pendencia_corp = df_aba.copy()
+            abas_encontradas.append(f"✅ PENDÊNCIA CORP ({len(df_aba)} linhas)")
         elif "avaria" in nome_lower:
             df_avarias = df_aba.copy()
+            abas_encontradas.append(f"✅ AVARIAS ({len(df_aba)} linhas)")
         elif "finaliza" in nome_lower:
             df_finalizadas = df_aba.copy()
+            abas_encontradas.append(f"✅ FINALIZADAS ({len(df_aba)} linhas)")
+    
+    if abas_encontradas:
+        st.success("Abas processadas:")
+        for aba in abas_encontradas:
+            st.write(aba)
 
 
 # ============================================================
@@ -273,6 +315,8 @@ df_work["Criticidade"] = df_work["Status Final"].apply(criticidade)
 df_work["Dias em Atraso"] = (pd.Timestamp.now().normalize() - df_work["SLA_dt"].dt.normalize()).dt.days
 df_work["Dias em Atraso"] = df_work["Dias em Atraso"].apply(lambda x: max(0, int(x)) if not pd.isna(x) else 0)
 
+st.success("✅ Dados processados e classificados com sucesso!")
+
 
 # ============================================================
 # FILTROS
@@ -293,6 +337,9 @@ with st.sidebar:
 if df_work.empty:
     st.warning("Nenhum dado para filtros selecionados.")
     st.stop()
+
+# Mostrar resumo de processamento
+st.info(f"📊 Dashboard processado com **{len(df_work)}** AWBs | **{(df_work['Criticidade'] == 'ALTA').sum()}** críticas | **{(df_work['Criticidade'] == 'AVARIA').sum()}** avarias | **{(df_work['Status Final'] == 'FINALIZADO').sum()}** finalizadas")
 
 
 # ============================================================
