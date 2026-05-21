@@ -3,13 +3,13 @@ from io import BytesIO
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ============================================================
 # CONFIGURAÇÃO
 # ============================================================
 st.set_page_config(
-    page_title="Dashboard Controle de Cargas - GDS Logística",
+    page_title="Dashboard Controle de Cargas",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -17,102 +17,58 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    * { margin: 0; padding: 0; }
     .stApp { background-color: #F5F7FB; }
     
-    /* CABEÇALHO PROFISSIONAL */
-    .header-container {
-        background: linear-gradient(135deg, #003B71 0%, #005DAA 100%);
+    .hero-header {
+        background: linear-gradient(135deg, #003B71 0%, #005DAA 70%, #FF8A00 140%);
         color: white;
-        padding: 30px 40px;
-        border-radius: 12px;
-        margin: 0 0 30px 0;
-        box-shadow: 0 6px 20px rgba(0, 59, 113, 0.2);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 30px;
+        padding: 28px 32px;
+        border-radius: 15px;
+        margin-bottom: 24px;
+        box-shadow: 0 6px 18px rgba(0, 59, 113, 0.15);
     }
     
-    .header-left {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        flex: 1;
-    }
-    
-    .header-logo-box {
-        width: 70px;
-        height: 70px;
-        background: white;
-        border-radius: 10px;
-        padding: 5px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    
-    .header-logo-box img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-    }
-    
-    .header-text h1 {
-        font-size: 28px;
+    .hero-header h1 { 
+        margin: 0; 
+        font-size: 30px; 
         font-weight: 900;
-        margin: 0;
-        line-height: 1.3;
+        display: flex;
+        align-items: center;
+        gap: 12px;
     }
     
-    .header-text p {
+    .hero-header p { 
+        margin: 10px 0 0 0; 
         font-size: 14px;
-        margin: 8px 0 0 0;
         opacity: 0.95;
         font-weight: 500;
     }
     
-    .header-badge {
+    .gds-badge {
         background: rgba(255, 138, 0, 0.2);
         color: #FFD580;
-        padding: 8px 16px;
+        padding: 6px 14px;
         border-radius: 20px;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.5px;
-        white-space: nowrap;
-        flex-shrink: 0;
+        text-transform: uppercase;
+        float: right;
+        margin-top: -8px;
     }
     
-    /* SEÇÕES */
     .section-title {
         color: #003B71;
-        font-size: 20px;
+        font-size: 21px;
         font-weight: 800;
-        margin-top: 28px;
-        margin-bottom: 14px;
-        padding-bottom: 10px;
-        border-bottom: 3px solid #FF8A00;
-        display: inline-block;
+        margin-top: 26px;
+        margin-bottom: 12px;
     }
-    
-    .kpi-value { 
-        color: #003B71; 
-        font-size: 28px; 
-        font-weight: 900; 
-    }
-    
-    .dias-atraso { 
-        color: #FF2D2D; 
-        font-weight: 900; 
-        font-size: 24px; 
-    }
-    
+    .kpi-value { color: #003B71; font-size: 27px; font-weight: 900; }
+    .dias-atraso { color: #FF2D2D; font-weight: 900; font-size: 24px; }
     .reentrega-alert {
         background: #FFF3E8;
-        border-left: 4px solid #FF8A00;
+        border-left: 6px solid #FF8A00;
         padding: 12px 16px;
         border-radius: 8px;
         margin-bottom: 8px;
@@ -121,19 +77,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# CABEÇALHO PROFISSIONAL COM LOGO
+# CABEÇALHO
 # ============================================================
 st.markdown("""
-<div class="header-container">
-    <div class="header-left">
-        <div class="header-text">
-            <h1>📦 Dashboard de Controle de Cargas</h1>
-            <p>Monitoramento em tempo real • DIAS EM ATRASO & REENTREGA PENDENTE</p>
-        </div>
-    </div>
-    <div class="header-badge">🚚 GDS LOGÍSTICA</div>
+<div class="hero-header">
+    <div class="gds-badge">🚚 GDS LOGÍSTICA</div>
+    <h1>📦 Dashboard de Controle de Cargas</h1>
+    <p>Análise com destaque em DIAS EM ATRASO e REENTREGA PENDENTE</p>
 </div>
 """, unsafe_allow_html=True)
+
 
 # ============================================================
 # FUNÇÕES
@@ -180,7 +133,7 @@ def format_pct(valor) -> str:
 
 
 # ============================================================
-# UPLOAD DOS ARQUIVOS
+# UPLOAD
 # ============================================================
 st.markdown('<div class="section-title">📁 Carregar Dados</div>', unsafe_allow_html=True)
 
@@ -209,9 +162,10 @@ if arquivo_sistema and arquivo_consolidado:
     
     # CARREGAMENTO
     with st.spinner("⏳ Carregando Relatório do Sistema..."):
-        df_sistema = pd.read_excel(arquivo_sistema, sheet_name="Report") \
-            if "xlsx" in arquivo_sistema.name or "xls" in arquivo_sistema.name \
-            else pd.read_csv(arquivo_sistema)
+        if "xlsx" in arquivo_sistema.name or "xls" in arquivo_sistema.name:
+            df_sistema = pd.read_excel(arquivo_sistema, sheet_name="Report")
+        else:
+            df_sistema = pd.read_csv(arquivo_sistema)
         st.success(f"✅ {len(df_sistema)} linhas carregadas")
     
     with st.spinner("⏳ Carregando Planilha Consolidada..."):
@@ -380,9 +334,10 @@ if arquivo_sistema and arquivo_consolidado:
             for awb in df_reen["awb_norm"]:
                 fin = df_finalizadas[df_finalizadas["awb_norm"] == awb]
                 if len(fin) > 0:
+                    data_mov = fin.iloc[0].get("DATA MOV. FINALIZAÇÃO") or fin.iloc[0].get("DATA MOV. FINALIZAÇÃO".lower()) or "-"
                     df_reen_dados.append({
                         "AWB": awb,
-                        "Data Finalização": fin.iloc[0].get("DATA MOV. FINALIZAÇÃO", "-")
+                        "Data Finalização": data_mov
                     })
             
             if df_reen_dados:
@@ -440,7 +395,7 @@ if arquivo_sistema and arquivo_consolidado:
         
         # CSV
         st.download_button(
-            label="📄 Baixar CSV (Todas as cargas)",
+            label="📄 Baixar CSV",
             data=df_sistema.to_csv(index=False),
             file_name="relatorio_cargas.csv",
             mime="text/csv"
