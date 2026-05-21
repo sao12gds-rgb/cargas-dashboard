@@ -277,12 +277,12 @@ def classificar(row):
     sla = row.get("SLA_dt")
     hoje = pd.Timestamp.now().normalize()
     
-    # Finalizadas
+    # 1️⃣ FINALIZADAS - prioridade máxima
     if not df_finalizadas.empty and "AWB_Norm" in df_finalizadas.columns:
         if awb in df_finalizadas["AWB_Norm"].values:
             return "FINALIZADO"
     
-    # Pendências
+    # 2️⃣ PENDÊNCIAS
     em_pend = False
     if not df_pendencias.empty and "AWB_Norm" in df_pendencias.columns:
         if awb in df_pendencias["AWB_Norm"].values:
@@ -294,20 +294,26 @@ def classificar(row):
     if em_pend:
         return "CARGA NA PENDÊNCIA"
     
-    # Avarias
+    # 3️⃣ AVARIAS
+    em_avaria = False
     if not df_avarias.empty and "AWB_Norm" in df_avarias.columns:
         if awb in df_avarias["AWB_Norm"].values:
-            return "CARGA COM AVARIA"
+            em_avaria = True
     
-    # SLA
+    if em_avaria:
+        return "CARGA COM AVARIA"
+    
+    # 4️⃣ ATRASO - SOMENTE para cargas sem pendência E sem avaria
     if pd.isna(sla):
         return "SEM SLA"
     
     sla_norm = sla.normalize()
-    if sla_norm == hoje:
-        return "CARGA NO PISO"
-    elif sla_norm < hoje:
+    
+    # Atraso só conta se NÃO está em pendência E NÃO está em avaria
+    if sla_norm < hoje:
         return "CARGA ATRASADA"
+    elif sla_norm == hoje:
+        return "CARGA NO PISO"
     else:
         return "MONITORAR"
 
@@ -544,4 +550,3 @@ with tab6:
 
 
 st.caption("Dashboard Controle de Cargas")
-
