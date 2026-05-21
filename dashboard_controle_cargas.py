@@ -19,7 +19,7 @@ st.markdown("""
 <style>
     .stApp { background-color: #F5F7FB; }
     
-    .hero-header {
+    .hero {
         background: linear-gradient(135deg, #003B71 0%, #005DAA 70%, #FF8A00 140%);
         color: white;
         padding: 28px 32px;
@@ -28,16 +28,13 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(0, 59, 113, 0.15);
     }
     
-    .hero-header h1 { 
+    .hero h1 { 
         margin: 0; 
         font-size: 30px; 
         font-weight: 900;
-        display: flex;
-        align-items: center;
-        gap: 12px;
     }
     
-    .hero-header p { 
+    .hero p { 
         margin: 10px 0 0 0; 
         font-size: 14px;
         opacity: 0.95;
@@ -64,8 +61,11 @@ st.markdown("""
         margin-top: 26px;
         margin-bottom: 12px;
     }
+    
     .kpi-value { color: #003B71; font-size: 27px; font-weight: 900; }
+    
     .dias-atraso { color: #FF2D2D; font-weight: 900; font-size: 24px; }
+    
     .reentrega-alert {
         background: #FFF3E8;
         border-left: 6px solid #FF8A00;
@@ -80,7 +80,7 @@ st.markdown("""
 # CABEÇALHO
 # ============================================================
 st.markdown("""
-<div class="hero-header">
+<div class="hero">
     <div class="gds-badge">🚚 GDS LOGÍSTICA</div>
     <h1>📦 Dashboard de Controle de Cargas</h1>
     <p>Análise com destaque em DIAS EM ATRASO e REENTREGA PENDENTE</p>
@@ -119,17 +119,6 @@ def encontrar_coluna(df: pd.DataFrame, opcoes: list[str]) -> str | None:
             if opcao_lower in col_lower or col_lower in opcao_lower:
                 return col_original
     return None
-
-
-def format_int(valor) -> str:
-    try:
-        return f"{int(valor):,}".replace(",", ".") if not pd.isna(valor) else "0"
-    except:
-        return "0"
-
-
-def format_pct(valor) -> str:
-    return f"{float(valor):.1f}%".replace(".", ",") if not pd.isna(valor) else "-"
 
 
 # ============================================================
@@ -296,8 +285,7 @@ if arquivo_sistema and arquivo_consolidado:
             fig_bar = px.bar(
                 x=status_counts2.index,
                 y=status_counts2.values,
-                title="Contagem por Status",
-                labels={"x": "Status", "y": "Quantidade"}
+                title="Contagem por Status"
             )
             st.plotly_chart(fig_bar, use_container_width=True)
     
@@ -327,28 +315,21 @@ if arquivo_sistema and arquivo_consolidado:
     with tab3:
         st.markdown('<div class="section-title">Reentrega Pendente</div>', unsafe_allow_html=True)
         
-        df_reen = df_sistema[df_sistema["CLASSIFICACAO"] == "🔄 REENTREGA PENDENTE"].copy()
+        df_reen = df_sistema[df_sistema["CLASSIFICACAO"] == "🔄 REENTREGA PENDENTE"]
         
         if len(df_reen) > 0:
-            df_reen_dados = []
-            for awb in df_reen["awb_norm"]:
-                fin = df_finalizadas[df_finalizadas["awb_norm"] == awb]
-                if len(fin) > 0:
-                    data_mov = fin.iloc[0].get("DATA MOV. FINALIZAÇÃO") or fin.iloc[0].get("DATA MOV. FINALIZAÇÃO".lower()) or "-"
-                    df_reen_dados.append({
-                        "AWB": awb,
-                        "Data Finalização": data_mov
-                    })
-            
-            if df_reen_dados:
-                st.dataframe(pd.DataFrame(df_reen_dados), use_container_width=True)
+            st.dataframe(df_reen[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
+                "awb_norm": "AWB",
+                "SLA": "SLA",
+                "StatusDescription": "Status"
+            }), use_container_width=True)
         else:
             st.info("ℹ️ Nenhuma reentrega pendente")
     
     with tab4:
         st.markdown('<div class="section-title">Pendências</div>', unsafe_allow_html=True)
         
-        df_pend = df_sistema[df_sistema["CLASSIFICACAO"] == "⏳ PENDÊNCIA"].copy()
+        df_pend = df_sistema[df_sistema["CLASSIFICACAO"] == "⏳ PENDÊNCIA"]
         
         if len(df_pend) > 0:
             st.dataframe(df_pend[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
@@ -362,7 +343,7 @@ if arquivo_sistema and arquivo_consolidado:
     with tab5:
         st.markdown('<div class="section-title">Avarias</div>', unsafe_allow_html=True)
         
-        df_avar = df_sistema[df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"].copy()
+        df_avar = df_sistema[df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"]
         
         if len(df_avar) > 0:
             st.dataframe(df_avar[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
@@ -376,7 +357,6 @@ if arquivo_sistema and arquivo_consolidado:
     with tab6:
         st.markdown('<div class="section-title">Exportar Dados</div>', unsafe_allow_html=True)
         
-        # Exportar completo
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             df_sistema.to_excel(writer, sheet_name="Todas as Cargas", index=False)
@@ -393,7 +373,6 @@ if arquivo_sistema and arquivo_consolidado:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
-        # CSV
         st.download_button(
             label="📄 Baixar CSV",
             data=df_sistema.to_csv(index=False),
