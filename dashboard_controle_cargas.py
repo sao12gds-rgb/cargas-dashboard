@@ -23,8 +23,13 @@ st.markdown("""
         padding: 24px 28px;
         border-radius: 22px;
         margin-bottom: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
     }
+    .hero-content { flex: 1; }
     .hero h1 { margin: 0; font-size: 31px; }
+    .hero-logo { max-width: 120px; height: auto; margin-left: 20px; }
     .section-title {
         color: #003B71;
         font-size: 21px;
@@ -94,8 +99,11 @@ def format_pct(valor) -> str:
 # ============================================================
 st.markdown("""
     <div class="hero">
-        <h1>📦 Dashboard de Controle de Cargas</h1>
-        <p>Análise com destaque em DIAS EM ATRASO e REENTREGA PENDENTE</p>
+        <div class="hero-content">
+            <h1>📦 Dashboard de Controle de Cargas</h1>
+            <p>Análise com destaque em DIAS EM ATRASO e REENTREGA PENDENTE</p>
+        </div>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" class="hero-logo" alt="GDS Logística" onerror="this.style.display='none'">
     </div>
     """, unsafe_allow_html=True)
 
@@ -245,6 +253,7 @@ if abas_consolidadas:
 def classificar(row):
     awb = row.get("AWB")
     sla = row.get("SLA_dt")
+    status_sistema = str(row.get("Status Sistema", "")).lower()
     hoje = pd.Timestamp.now().normalize()
     
     # 1️⃣ Verificar FINALIZADAS
@@ -277,35 +286,38 @@ def classificar(row):
         if awb in df_avarias["AWB_Norm"].values:
             em_avaria = True
     
-    # LÓGICA
+    # LÓGICA DE CLASSIFICAÇÃO
     
-    # REENTREGA: Finalizado MAS em Pendência
-    if finalizado and em_pend:
+    # 🔄 REENTREGA: Finalizado MAS status no Sistema é "Pendente Entrega"
+    if finalizado and "pendente" in status_sistema and "entrega" in status_sistema:
         row["Data_Finalizacao"] = data_finalizacao
         return "🔄 REENTREGA PENDENTE"
     
-    # FINALIZADO puro
-    if finalizado and not em_pend:
+    # ✅ FINALIZADO puro (está finalizado e não está "Pendente Entrega")
+    if finalizado and not ("pendente" in status_sistema and "entrega" in status_sistema):
         return "✅ FINALIZADO"
     
-    # PENDÊNCIA
+    # ⏳ PENDÊNCIA
     if em_pend:
         return "⏳ PENDÊNCIA"
     
-    # AVARIA
+    # ⚠️ AVARIA
     if em_avaria:
         return "⚠️ AVARIA"
     
-    # SLA
+    # 🚨 SEM SLA
     if pd.isna(sla):
         return "❓ SEM SLA"
     
     sla_norm = sla.normalize()
     
+    # 🔴 ATRASADA
     if sla_norm < hoje:
         return "🔴 ATRASADA"
+    # 🟠 NO PISO
     elif sla_norm == hoje:
         return "🟠 NO PISO"
+    # 🟢 MONITORAR
     else:
         return "🟢 MONITORAR"
 
