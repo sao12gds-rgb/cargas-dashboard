@@ -369,11 +369,11 @@ if df_work.empty:
 
 # Resumo
 total = len(df_work)
-atrasadas = int((df_work["Status Final"] == "🔴 ATRASADA").sum())
+atrasadas = int((df_work["Status Final"] == "🔴 ATRASADA").sum()) + int((df_work["Status Final"] == "🟠 NO PISO").sum())
 reentrega = int((df_work["Status Final"] == "🔄 REENTREGA PENDENTE").sum())
 finalizadas = int((df_work["Status Final"] == "✅ FINALIZADO").sum())
 
-st.info(f"📊 **{total}** AWBs | **{atrasadas}** atrasadas | **{reentrega}** reentrega pendente | **{finalizadas}** finalizadas")
+st.info(f"📊 **{total}** AWBs | **{atrasadas}** atrasadas (incluindo no piso) | **{reentrega}** reentrega pendente | **{finalizadas}** finalizadas")
 
 
 # ============================================================
@@ -399,11 +399,11 @@ with c6:
     avaria = int((df_work["Status Final"] == "⚠️ AVARIA").sum())
     st.metric("Avarias", format_int(avaria))
 with c7:
-    piso = int((df_work["Status Final"] == "🟠 NO PISO").sum())
-    st.metric("No Piso", format_int(piso))
-with c8:
     dias_media = df_work[df_work["Dias em Atraso"] > 0]["Dias em Atraso"].mean()
     st.metric("Média dias atrasadas", f"{dias_media:.1f}".replace(".", ","))
+with c8:
+    monitorar = int((df_work["Status Final"] == "🟢 MONITORAR").sum())
+    st.metric("Monitorar", format_int(monitorar))
 
 
 # ============================================================
@@ -411,7 +411,7 @@ with c8:
 # ============================================================
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Visual",
-    "🔴 Atrasadas",
+    "🔴 Atrasadas (inclui No Piso)",
     "🔄 Reentrega",
     "⏳ Pendências",
     "⚠️ Avarias",
@@ -446,9 +446,9 @@ with tab1:
 # ABA 2: ATRASADAS
 # ============================================================
 with tab2:
-    st.markdown('<div class="section-title">🔴 Cargas Atrasadas</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🔴 Cargas Atrasadas (incluindo No Piso)</div>', unsafe_allow_html=True)
     
-    df_atraso = df_work[df_work["Status Final"] == "🔴 ATRASADA"].copy()
+    df_atraso = df_work[df_work["Status Final"].isin(["🔴 ATRASADA", "🟠 NO PISO"])].copy()
     st.write(f"**{len(df_atraso)} cargas atrasadas** - Ordenadas por dias em atraso")
     
     if not df_atraso.empty:
