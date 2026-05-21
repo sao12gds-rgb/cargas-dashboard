@@ -1,12 +1,8 @@
 from __future__ import annotations
-
 from io import BytesIO
-import unicodedata
-
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-
 
 # ============================================================
 # CONFIGURAÇÃO
@@ -36,18 +32,14 @@ st.markdown("""
         margin-top: 26px;
         margin-bottom: 12px;
     }
-    .kpi-card {
-        background: #FFFFFF;
-        border-radius: 18px;
-        padding: 18px;
-        border: 1px solid #E7ECF3;
-    }
     .kpi-value { color: #003B71; font-size: 27px; font-weight: 900; }
-    .alert-card {
+    .dias-atraso { color: #FF2D2D; font-weight: 900; font-size: 24px; }
+    .reentrega-alert {
         background: #FFF3E8;
         border-left: 6px solid #FF8A00;
-        padding: 14px 16px;
-        border-radius: 14px;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 8px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -64,10 +56,8 @@ def normalizar_awb(valor: object) -> str:
     txt = str(valor).strip().replace(".0", "")
     apenas = "".join(ch for ch in txt if ch.isdigit())
     
-    # Se tem 15 dígitos (577XXXXXXXX0001), remove 577 e últimos 4
     if len(apenas) == 15 and apenas.startswith("577"):
         apenas = apenas[3:11]
-    # Se tem prefixo 577 e mais de 8, remove prefixo
     elif apenas.startswith("577") and len(apenas) > 8:
         apenas = apenas[3:]
     
@@ -75,18 +65,16 @@ def normalizar_awb(valor: object) -> str:
 
 
 def encontrar_coluna(df: pd.DataFrame, opcoes: list[str]) -> str | None:
-    """Encontra coluna de forma flexível, ignorando maiúsculas/minúsculas e espaços"""
+    """Encontra coluna de forma flexível"""
     colunas_lower = {col.lower().strip(): col for col in df.columns}
     
     for opcao in opcoes:
         opcao_lower = opcao.lower().strip()
         if opcao_lower in colunas_lower:
             return colunas_lower[opcao_lower]
-        # Busca parcial também
         for col_lower, col_original in colunas_lower.items():
             if opcao_lower in col_lower or col_lower in opcao_lower:
                 return col_original
-    
     return None
 
 
@@ -101,22 +89,13 @@ def format_pct(valor) -> str:
     return f"{float(valor):.1f}%".replace(".", ",") if not pd.isna(valor) else "-"
 
 
-@st.cache_data
-def carregar_arquivo(uploaded_file):
-    nome = uploaded_file.name.lower()
-    if nome.endswith(".csv"):
-        return pd.read_csv(uploaded_file, sep=None, engine="python")
-    else:
-        return pd.read_excel(uploaded_file, sheet_name=None)
-
-
 # ============================================================
 # CABEÇALHO
 # ============================================================
 st.markdown("""
     <div class="hero">
         <h1>📦 Dashboard de Controle de Cargas</h1>
-        <p>Análise integrada com classificação automática de status e criticidade.</p>
+        <p>Análise com destaque em DIAS EM ATRASO e REENTREGA PENDENTE</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -147,7 +126,6 @@ if arquivo_sistema is None:
 with st.spinner("⏳ Processando Relatório do Sistema..."):
     try:
         df_sistema_raw = pd.read_csv(arquivo_sistema, sep=None, engine="python") if arquivo_sistema.name.endswith(".csv") else pd.read_excel(arquivo_sistema)
-        # Normalizar nomes de colunas (remover espaços)
         df_sistema_raw.columns = df_sistema_raw.columns.str.strip()
         st.success(f"✅ Relatório do Sistema carregado! ({len(df_sistema_raw)} linhas)")
     except Exception as e:
@@ -164,16 +142,13 @@ if arquivo_consolidado is not None:
     with st.spinner("⏳ Processando Planilha Consolidada..."):
         try:
             excel_file = pd.ExcelFile(arquivo_consolidado)
-            abas_consolidadas = {}
             
             for sheet_name in excel_file.sheet_names:
                 if sheet_name.lower() == "avarias":
-                    # AVARIAS tem header estranho, pula primeira linha
                     df_aba = pd.read_excel(arquivo_consolidado, sheet_name=sheet_name, skiprows=1)
                 else:
                     df_aba = pd.read_excel(arquivo_consolidado, sheet_name=sheet_name)
                 
-                # Normalizar nomes de colunas (remover espaços)
                 df_aba.columns = df_aba.columns.str.strip()
                 abas_consolidadas[sheet_name] = df_aba
             
@@ -197,7 +172,6 @@ col_destino = encontrar_coluna(df, ["destino", "destination"])
 
 if col_awb is None or col_sla is None:
     st.error("Colunas obrigatórias não encontradas (AWB, SLA)")
-    st.write("Colunas disponíveis:", list(df.columns))
     st.stop()
 
 # Normalizar Sistema
@@ -232,15 +206,11 @@ df_finalizadas = pd.DataFrame()
 if abas_consolidadas:
     st.info("🔄 Processando abas consolidadas...")
     
-    # Localizar abas
     abas_encontradas = []
     for nome_aba, df_aba in abas_consolidadas.items():
-        # Normalizar nomes de colunas (remover espaços)
         df_aba.columns = df_aba.columns.str.strip()
-        
         nome_lower = nome_aba.lower()
         
-        # Procurar coluna AWB (com espaços ou sem)
         col_aba_awb = None
         for col in df_aba.columns:
             if "awb" in col.lower():
@@ -270,19 +240,29 @@ if abas_consolidadas:
 
 
 # ============================================================
-# CLASSIFICAÇÃO
+# CLASSIFICAÇÃO COM REENTREGA
 # ============================================================
 def classificar(row):
     awb = row.get("AWB")
     sla = row.get("SLA_dt")
     hoje = pd.Timestamp.now().normalize()
     
-    # 1️⃣ FINALIZADAS - prioridade máxima
+    # 1️⃣ Verificar FINALIZADAS
+    finalizado = False
+    data_finalizacao = None
     if not df_finalizadas.empty and "AWB_Norm" in df_finalizadas.columns:
         if awb in df_finalizadas["AWB_Norm"].values:
-            return "FINALIZADO"
+            finalizado = True
+            try:
+                idx = df_finalizadas[df_finalizadas["AWB_Norm"] == awb].index[0]
+                for col in df_finalizadas.columns:
+                    if "mov" in col.lower() or "finaliz" in col.lower():
+                        data_finalizacao = df_finalizadas.loc[idx, col]
+                        break
+            except:
+                pass
     
-    # 2️⃣ PENDÊNCIAS
+    # 2️⃣ Verificar PENDÊNCIAS
     em_pend = False
     if not df_pendencias.empty and "AWB_Norm" in df_pendencias.columns:
         if awb in df_pendencias["AWB_Norm"].values:
@@ -291,48 +271,64 @@ def classificar(row):
         if awb in df_pendencia_corp["AWB_Norm"].values:
             em_pend = True
     
-    if em_pend:
-        return "CARGA NA PENDÊNCIA"
-    
-    # 3️⃣ AVARIAS
+    # 3️⃣ Verificar AVARIAS
     em_avaria = False
     if not df_avarias.empty and "AWB_Norm" in df_avarias.columns:
         if awb in df_avarias["AWB_Norm"].values:
             em_avaria = True
     
-    if em_avaria:
-        return "CARGA COM AVARIA"
+    # LÓGICA
     
-    # 4️⃣ ATRASO - SOMENTE para cargas sem pendência E sem avaria
+    # REENTREGA: Finalizado MAS em Pendência
+    if finalizado and em_pend:
+        row["Data_Finalizacao"] = data_finalizacao
+        return "🔄 REENTREGA PENDENTE"
+    
+    # FINALIZADO puro
+    if finalizado and not em_pend:
+        return "✅ FINALIZADO"
+    
+    # PENDÊNCIA
+    if em_pend:
+        return "⏳ PENDÊNCIA"
+    
+    # AVARIA
+    if em_avaria:
+        return "⚠️ AVARIA"
+    
+    # SLA
     if pd.isna(sla):
-        return "SEM SLA"
+        return "❓ SEM SLA"
     
     sla_norm = sla.normalize()
     
-    # Atraso só conta se NÃO está em pendência E NÃO está em avaria
     if sla_norm < hoje:
-        return "CARGA ATRASADA"
+        return "🔴 ATRASADA"
     elif sla_norm == hoje:
-        return "CARGA NO PISO"
+        return "🟠 NO PISO"
     else:
-        return "MONITORAR"
-
-
-def criticidade(status):
-    mapa = {
-        "CARGA ATRASADA": "ALTA",
-        "CARGA NO PISO": "MÉDIA",
-        "CARGA NA PENDÊNCIA": "CONTROLADA",
-        "CARGA COM AVARIA": "AVARIA",
-        "FINALIZADO": "OK",
-        "MONITORAR": "BAIXA",
-        "SEM SLA": "-",
-    }
-    return mapa.get(status, "-")
+        return "🟢 MONITORAR"
 
 
 df_work["Status Final"] = df_work.apply(classificar, axis=1)
+
+# Criticidade
+def criticidade(status):
+    mapa = {
+        "🔴 ATRASADA": "ALTA",
+        "🟠 NO PISO": "MÉDIA",
+        "⏳ PENDÊNCIA": "CONTROLADA",
+        "⚠️ AVARIA": "AVARIA",
+        "✅ FINALIZADO": "OK",
+        "🟢 MONITORAR": "BAIXA",
+        "🔄 REENTREGA PENDENTE": "REENTREGA",
+        "❓ SEM SLA": "-",
+    }
+    return mapa.get(status, "-")
+
 df_work["Criticidade"] = df_work["Status Final"].apply(criticidade)
+
+# Calcular Dias em Atraso
 df_work["Dias em Atraso"] = (pd.Timestamp.now().normalize() - df_work["SLA_dt"].dt.normalize()).dt.days
 df_work["Dias em Atraso"] = df_work["Dias em Atraso"].apply(lambda x: max(0, int(x)) if not pd.isna(x) else 0)
 
@@ -359,8 +355,13 @@ if df_work.empty:
     st.warning("Nenhum dado para filtros selecionados.")
     st.stop()
 
-# Mostrar resumo de processamento
-st.info(f"📊 Dashboard processado com **{len(df_work)}** AWBs | **{(df_work['Criticidade'] == 'ALTA').sum()}** críticas | **{(df_work['Criticidade'] == 'AVARIA').sum()}** avarias | **{(df_work['Status Final'] == 'FINALIZADO').sum()}** finalizadas")
+# Resumo
+total = len(df_work)
+atrasadas = int((df_work["Status Final"] == "🔴 ATRASADA").sum())
+reentrega = int((df_work["Status Final"] == "🔄 REENTREGA PENDENTE").sum())
+finalizadas = int((df_work["Status Final"] == "✅ FINALIZADO").sum())
+
+st.info(f"📊 **{total}** AWBs | **{atrasadas}** atrasadas | **{reentrega}** reentrega pendente | **{finalizadas}** finalizadas")
 
 
 # ============================================================
@@ -368,30 +369,25 @@ st.info(f"📊 Dashboard processado com **{len(df_work)}** AWBs | **{(df_work['C
 # ============================================================
 st.markdown('<div class="section-title">📊 Resumo</div>', unsafe_allow_html=True)
 
-total = len(df_work)
-finalizadas = int((df_work["Status Final"] == "FINALIZADO").sum())
-pendencias = int((df_work["Status Final"] == "CARGA NA PENDÊNCIA").sum())
-avarias = int((df_work["Status Final"] == "CARGA COM AVARIA").sum())
-atrasadas = int((df_work["Status Final"] == "CARGA ATRASADA").sum())
-alta = int((df_work["Criticidade"] == "ALTA").sum())
-
 c1, c2, c3, c4 = st.columns(4)
 with c1:
     st.metric("Total AWBs", format_int(total))
 with c2:
-    st.metric("Finalizadas", f"{format_int(finalizadas)} ({format_pct(finalizadas/total*100 if total else 0)})")
+    st.metric("Atrasadas", f"{format_int(atrasadas)} 🔴")
 with c3:
-    st.metric("Críticas", f"{format_int(alta)} ({format_pct(alta/total*100 if total else 0)})")
+    st.metric("Reentrega Pendente", f"{format_int(reentrega)} 🔄")
 with c4:
-    st.metric("Pendências", f"{format_int(pendencias)} ({format_pct(pendencias/total*100 if total else 0)})")
+    st.metric("Finalizadas", f"{format_int(finalizadas)} ✅")
 
 c5, c6, c7, c8 = st.columns(4)
 with c5:
-    st.metric("Avarias", f"{format_int(avarias)} ({format_pct(avarias/total*100 if total else 0)})")
+    pendencia = int((df_work["Status Final"] == "⏳ PENDÊNCIA").sum())
+    st.metric("Pendências", format_int(pendencia))
 with c6:
-    st.metric("Atrasadas", f"{format_int(atrasadas)} ({format_pct(atrasadas/total*100 if total else 0)})")
+    avaria = int((df_work["Status Final"] == "⚠️ AVARIA").sum())
+    st.metric("Avarias", format_int(avaria))
 with c7:
-    piso = int((df_work["Status Final"] == "CARGA NO PISO").sum())
+    piso = int((df_work["Status Final"] == "🟠 NO PISO").sum())
     st.metric("No Piso", format_int(piso))
 with c8:
     dias_media = df_work[df_work["Dias em Atraso"] > 0]["Dias em Atraso"].mean()
@@ -403,10 +399,10 @@ with c8:
 # ============================================================
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Visual",
-    "🚨 Críticas",
+    "🔴 Atrasadas",
+    "🔄 Reentrega",
     "⏳ Pendências",
     "⚠️ Avarias",
-    "✅ Finalizadas",
     "📥 Exportação"
 ])
 
@@ -435,67 +431,93 @@ with tab1:
 
 
 # ============================================================
-# ABA 2: CRÍTICAS
+# ABA 2: ATRASADAS
 # ============================================================
 with tab2:
-    st.markdown('<div class="section-title">🚨 Cargas Críticas (ALTA)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🔴 Cargas Atrasadas</div>', unsafe_allow_html=True)
     
-    df_criticas = df_work[df_work["Criticidade"] == "ALTA"].copy()
-    st.write(f"**{len(df_criticas)} cargas críticas encontradas**")
+    df_atraso = df_work[df_work["Status Final"] == "🔴 ATRASADA"].copy()
+    st.write(f"**{len(df_atraso)} cargas atrasadas** - Ordenadas por dias em atraso")
     
-    colunas = ["AWB", "Status Final", "Criticidade", "Dias em Atraso", "Status Sistema"]
-    colunas = [c for c in colunas if c in df_criticas.columns]
-    
-    if not df_criticas.empty:
-        st.dataframe(df_criticas[colunas].sort_values("Dias em Atraso", ascending=False), use_container_width=True, hide_index=True)
+    if not df_atraso.empty:
+        df_atraso = df_atraso.sort_values("Dias em Atraso", ascending=False)
+        
+        # Exibir com destaque de dias
+        for idx, row in df_atraso.iterrows():
+            col1, col2, col3, col4 = st.columns([2, 2, 2, 3])
+            with col1:
+                st.write(f"**AWB:** {row['AWB']}")
+            with col2:
+                st.markdown(f"<div class='dias-atraso'>{row['Dias em Atraso']} dias</div>", unsafe_allow_html=True)
+            with col3:
+                st.write(f"SLA: {row['SLA_dt'].strftime('%d/%m/%Y') if pd.notna(row['SLA_dt']) else '-'}")
+            with col4:
+                st.write(f"Origem: {row['Origem']}")
+        
+        # Tabela resumida
+        st.divider()
+        colunas = ["AWB", "Dias em Atraso", "SLA_dt", "Status Sistema"]
+        colunas = [c for c in colunas if c in df_atraso.columns]
+        st.dataframe(df_atraso[colunas], use_container_width=True, hide_index=True)
 
 
 # ============================================================
-# ABA 3: PENDÊNCIAS
+# ABA 3: REENTREGA
 # ============================================================
 with tab3:
-    st.markdown('<div class="section-title">⏳ Pendências</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🔄 Reentrega Pendente</div>', unsafe_allow_html=True)
     
-    df_pend_vis = df_work[df_work["Status Final"] == "CARGA NA PENDÊNCIA"].copy()
-    st.write(f"**{len(df_pend_vis)} cargas em pendência**")
+    df_reentrega = df_work[df_work["Status Final"] == "🔄 REENTREGA PENDENTE"].copy()
+    st.write(f"**{len(df_reentrega)} cargas em reentrega** - Finalizadas mas retornaram à Pendência")
     
-    colunas = ["AWB", "Status Final", "Criticidade", "Status Sistema"]
-    colunas = [c for c in colunas if c in df_pend_vis.columns]
-    
-    if not df_pend_vis.empty:
-        st.dataframe(df_pend_vis[colunas], use_container_width=True, hide_index=True)
+    if not df_reentrega.empty:
+        for idx, row in df_reentrega.iterrows():
+            st.markdown(f"""
+            <div class='reentrega-alert'>
+                <strong>AWB:</strong> {row['AWB']} | 
+                <strong>Data Finalização:</strong> {row.get('Data_Finalizacao', '-')} | 
+                <strong>Status:</strong> {row['Status Sistema']}
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.divider()
+        colunas = ["AWB", "Status Sistema", "Dias em Atraso"]
+        colunas = [c for c in colunas if c in df_reentrega.columns]
+        st.dataframe(df_reentrega[colunas], use_container_width=True, hide_index=True)
+    else:
+        st.success("✅ Nenhuma reentrega pendente!")
 
 
 # ============================================================
-# ABA 4: AVARIAS
+# ABA 4: PENDÊNCIAS
 # ============================================================
 with tab4:
+    st.markdown('<div class="section-title">⏳ Pendências</div>', unsafe_allow_html=True)
+    
+    df_pend = df_work[df_work["Status Final"] == "⏳ PENDÊNCIA"].copy()
+    st.write(f"**{len(df_pend)} cargas em pendência**")
+    
+    colunas = ["AWB", "Status Sistema", "Origem"]
+    colunas = [c for c in colunas if c in df_pend.columns]
+    
+    if not df_pend.empty:
+        st.dataframe(df_pend[colunas], use_container_width=True, hide_index=True)
+
+
+# ============================================================
+# ABA 5: AVARIAS
+# ============================================================
+with tab5:
     st.markdown('<div class="section-title">⚠️ Avarias</div>', unsafe_allow_html=True)
     
-    df_avar = df_work[df_work["Status Final"] == "CARGA COM AVARIA"].copy()
+    df_avar = df_work[df_work["Status Final"] == "⚠️ AVARIA"].copy()
     st.write(f"**{len(df_avar)} cargas com avaria**")
     
-    colunas = ["AWB", "Status Final", "Criticidade", "Status Sistema"]
+    colunas = ["AWB", "Status Sistema", "Origem"]
     colunas = [c for c in colunas if c in df_avar.columns]
     
     if not df_avar.empty:
         st.dataframe(df_avar[colunas], use_container_width=True, hide_index=True)
-
-
-# ============================================================
-# ABA 5: FINALIZADAS
-# ============================================================
-with tab5:
-    st.markdown('<div class="section-title">✅ Finalizadas</div>', unsafe_allow_html=True)
-    
-    df_fin = df_work[df_work["Status Final"] == "FINALIZADO"].copy()
-    st.write(f"**{len(df_fin)} cargas finalizadas**")
-    
-    colunas = ["AWB", "Status Final", "Status Sistema"]
-    colunas = [c for c in colunas if c in df_fin.columns]
-    
-    if not df_fin.empty:
-        st.dataframe(df_fin[colunas], use_container_width=True, hide_index=True)
 
 
 # ============================================================
@@ -504,7 +526,7 @@ with tab5:
 with tab6:
     st.markdown('<div class="section-title">📥 Exportação</div>', unsafe_allow_html=True)
     
-    colunas_export = ["AWB", "Status Final", "Criticidade", "Dias em Atraso", "Status Sistema"]
+    colunas_export = ["AWB", "Status Final", "Criticidade", "Dias em Atraso", "SLA_dt", "Origem"]
     colunas_export = [c for c in colunas_export if c in df_work.columns]
     
     st.dataframe(df_work[colunas_export], use_container_width=True, hide_index=True)
@@ -517,10 +539,10 @@ with tab6:
         
         abas = {
             "Base Filtrada": df_work[colunas_export],
-            "Críticas": df_work[df_work["Criticidade"] == "ALTA"][colunas_export],
-            "Pendências": df_work[df_work["Status Final"] == "CARGA NA PENDÊNCIA"][colunas_export],
-            "Avarias": df_work[df_work["Status Final"] == "CARGA COM AVARIA"][colunas_export],
-            "Finalizadas": df_work[df_work["Status Final"] == "FINALIZADO"][colunas_export],
+            "Atrasadas": df_work[df_work["Status Final"] == "🔴 ATRASADA"][colunas_export],
+            "Reentrega": df_work[df_work["Status Final"] == "🔄 REENTREGA PENDENTE"][colunas_export],
+            "Pendências": df_work[df_work["Status Final"] == "⏳ PENDÊNCIA"][colunas_export],
+            "Avarias": df_work[df_work["Status Final"] == "⚠️ AVARIA"][colunas_export],
         }
         
         for nome_aba, df_aba in abas.items():
@@ -539,7 +561,6 @@ with tab6:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     
-    # CSV
     csv = df_work[colunas_export].to_csv(index=False, sep=";").encode("utf-8-sig")
     st.download_button(
         "📥 CSV",
@@ -549,4 +570,4 @@ with tab6:
     )
 
 
-st.caption("Dashboard Controle de Cargas")
+st.caption("Dashboard Controle de Cargas - v4.0 | Destaque em Dias em Atraso e Reentrega Pendente")
