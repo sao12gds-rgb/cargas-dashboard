@@ -57,21 +57,36 @@ st.markdown("""
 # FUNÇÕES
 # ============================================================
 def normalizar_awb(valor: object) -> str:
+    """Normaliza AWB para 8 dígitos"""
     if pd.isna(valor):
         return ""
+    
     txt = str(valor).strip().replace(".0", "")
     apenas = "".join(ch for ch in txt if ch.isdigit())
-    if apenas.startswith("577") and len(apenas) > 8:
+    
+    # Se tem 15 dígitos (577XXXXXXXX0001), remove 577 e últimos 4
+    if len(apenas) == 15 and apenas.startswith("577"):
+        apenas = apenas[3:11]
+    # Se tem prefixo 577 e mais de 8, remove prefixo
+    elif apenas.startswith("577") and len(apenas) > 8:
         apenas = apenas[3:]
+    
     return apenas.lstrip("0") or apenas
 
 
 def encontrar_coluna(df: pd.DataFrame, opcoes: list[str]) -> str | None:
-    for col in df.columns:
-        col_lower = str(col).strip().lower()
-        for opcao in opcoes:
-            if opcao.lower() in col_lower or col_lower in opcao.lower():
-                return col
+    """Encontra coluna de forma flexível, ignorando maiúsculas/minúsculas e espaços"""
+    colunas_lower = {col.lower().strip(): col for col in df.columns}
+    
+    for opcao in opcoes:
+        opcao_lower = opcao.lower().strip()
+        if opcao_lower in colunas_lower:
+            return colunas_lower[opcao_lower]
+        # Busca parcial também
+        for col_lower, col_original in colunas_lower.items():
+            if opcao_lower in col_lower or col_lower in opcao_lower:
+                return col_original
+    
     return None
 
 
@@ -529,3 +544,4 @@ with tab6:
 
 
 st.caption("Dashboard Controle de Cargas")
+
