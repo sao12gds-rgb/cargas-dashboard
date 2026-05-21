@@ -103,9 +103,18 @@ st.markdown("""
             <h1>📦 Dashboard de Controle de Cargas</h1>
             <p>Análise com destaque em DIAS EM ATRASO e REENTREGA PENDENTE</p>
         </div>
-        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" class="hero-logo" alt="GDS Logística" onerror="this.style.display='none'">
     </div>
     """, unsafe_allow_html=True)
+
+# Exibir logo se existir
+try:
+    from PIL import Image
+    logo = Image.open("logo.png")
+    col1, col2, col3 = st.columns([3, 1, 1])
+    with col3:
+        st.image(logo, width=120, caption="GDS Logística")
+except:
+    pass
 
 
 # ============================================================
