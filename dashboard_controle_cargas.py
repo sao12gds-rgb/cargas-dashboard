@@ -172,12 +172,45 @@ if arquivo_sistema and arquivo_consolidado:
         
         st.success(f"✅ PENDENCIAS: {len(df_pendencias)} | CORP: {len(df_pendencia_corp)} | AVARIAS: {len(df_avarias)} | FINALIZADAS: {len(df_finalizadas)}")
     
+    # ENCONTRAR COLUNAS
+    st.info("🔍 Buscando colunas...")
+    
+    col_awb_sistema = encontrar_coluna(df_sistema, ["AWB", "awb", "N. Rastreamento", "rastreamento", "numero"])
+    col_sla_sistema = encontrar_coluna(df_sistema, ["SLA", "sla", "data", "vencimento", "prazo"])
+    col_status_sistema = encontrar_coluna(df_sistema, ["StatusDescription", "status", "situacao", "status description"])
+    
+    st.write(f"✅ AWB: {col_awb_sistema}")
+    st.write(f"✅ SLA: {col_sla_sistema}")
+    st.write(f"✅ Status: {col_status_sistema}")
+    
+    if not col_awb_sistema or not col_sla_sistema or not col_status_sistema:
+        st.error("❌ Colunas não encontradas!")
+        st.write("**Colunas do Sistema:**", list(df_sistema.columns))
+        st.write("**Colunas Pendências:**", list(df_pendencias.columns))
+        st.stop()
+    
+    # Renomear colunas para padrão
+    df_sistema = df_sistema.rename(columns={
+        col_awb_sistema: "AWB",
+        col_sla_sistema: "SLA",
+        col_status_sistema: "StatusDescription"
+    })
+    
+    col_awb_pend = encontrar_coluna(df_pendencias, ["AWB", "awb", "N. Rastreamento"])
+    col_awb_corp = encontrar_coluna(df_pendencia_corp, ["AWB", "awb", "N. Rastreamento"])
+    col_awb_avar = encontrar_coluna(df_avarias, ["AWB", "awb", "N. Rastreamento"])
+    col_awb_final = encontrar_coluna(df_finalizadas, ["AWB", "awb", "N. Rastreamento"])
+    
     # NORMALIZAR AWB
     df_sistema["awb_norm"] = df_sistema["AWB"].apply(normalizar_awb)
-    df_pendencias["awb_norm"] = df_pendencias["AWB"].apply(normalizar_awb)
-    df_pendencia_corp["awb_norm"] = df_pendencia_corp["AWB"].apply(normalizar_awb)
-    df_avarias["awb_norm"] = df_avarias["AWB"].apply(normalizar_awb)
-    df_finalizadas["awb_norm"] = df_finalizadas["AWB"].apply(normalizar_awb)
+    if col_awb_pend:
+        df_pendencias["awb_norm"] = df_pendencias[col_awb_pend].apply(normalizar_awb)
+    if col_awb_corp:
+        df_pendencia_corp["awb_norm"] = df_pendencia_corp[col_awb_corp].apply(normalizar_awb)
+    if col_awb_avar:
+        df_avarias["awb_norm"] = df_avarias[col_awb_avar].apply(normalizar_awb)
+    if col_awb_final:
+        df_finalizadas["awb_norm"] = df_finalizadas[col_awb_final].apply(normalizar_awb)
     
     # CLASSIFICAÇÃO
     def classificar(row):
@@ -200,6 +233,10 @@ if arquivo_sistema and arquivo_consolidado:
         status_sistema = df_sistema[df_sistema["awb_norm"] == awb]["StatusDescription"].values
         tem_pendente_entrega = any("Pendente" in str(s) and "Entrega" in str(s) for s in status_sistema) if len(status_sistema) > 0 else False
         
+        # PRIORIDADE: SLA = HOJE (NO PISO) tem precedência
+        if sla == hoje:
+            return "🟠 NO PISO"
+        
         if em_finalizadas and tem_pendente_entrega:
             return "🔄 REENTREGA PENDENTE"
         elif em_finalizadas:
@@ -210,8 +247,6 @@ if arquivo_sistema and arquivo_consolidado:
             return "⚠️ AVARIA"
         elif sla < hoje:
             return "🔴 ATRASADA"
-        elif sla == hoje:
-            return "🟠 NO PISO"
         else:
             return "🟢 MONITORAR"
     
