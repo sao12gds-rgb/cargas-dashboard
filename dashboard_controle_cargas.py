@@ -3,7 +3,7 @@ from io import BytesIO
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ============================================================
 # CONFIGURAÇÃO
@@ -170,7 +170,12 @@ if arquivo_sistema and arquivo_consolidado:
         df_finalizadas = pd.read_excel(arquivo_consolidado, sheet_name="FINALIZADAS")
         df_finalizadas.columns = df_finalizadas.columns.str.strip()
         
-        st.success(f"✅ PENDENCIAS: {len(df_pendencias)} | CORP: {len(df_pendencia_corp)} | AVARIAS: {len(df_avarias)} | FINALIZADAS: {len(df_finalizadas)}")
+        st.success(
+            f"✅ PENDENCIAS: {len(df_pendencias)} | "
+            f"CORP: {len(df_pendencia_corp)} | "
+            f"AVARIAS: {len(df_avarias)} | "
+            f"FINALIZADAS: {len(df_finalizadas)}"
+        )
     
     # ENCONTRAR COLUNAS
     st.info("🔍 Buscando colunas...")
@@ -189,7 +194,7 @@ if arquivo_sistema and arquivo_consolidado:
         st.write("**Colunas Pendências:**", list(df_pendencias.columns))
         st.stop()
     
-    # Renomear colunas para padrão
+    # RENOMEAR COLUNAS PARA PADRÃO
     df_sistema = df_sistema.rename(columns={
         col_awb_sistema: "AWB",
         col_sla_sistema: "SLA",
@@ -203,15 +208,55 @@ if arquivo_sistema and arquivo_consolidado:
     
     # NORMALIZAR AWB
     df_sistema["awb_norm"] = df_sistema["AWB"].apply(normalizar_awb)
+
     if col_awb_pend:
         df_pendencias["awb_norm"] = df_pendencias[col_awb_pend].apply(normalizar_awb)
+    else:
+        df_pendencias["awb_norm"] = ""
+
     if col_awb_corp:
         df_pendencia_corp["awb_norm"] = df_pendencia_corp[col_awb_corp].apply(normalizar_awb)
+    else:
+        df_pendencia_corp["awb_norm"] = ""
+
     if col_awb_avar:
         df_avarias["awb_norm"] = df_avarias[col_awb_avar].apply(normalizar_awb)
+    else:
+        df_avarias["awb_norm"] = ""
+
     if col_awb_final:
         df_finalizadas["awb_norm"] = df_finalizadas[col_awb_final].apply(normalizar_awb)
-    
+    else:
+        df_finalizadas["awb_norm"] = ""
+
+    # ============================================================
+    # REGRA DE TRATADAS PELA TORRE
+    # Considera tratado apenas AWB da aba PENDENCIAS com
+    # DATA MOV. FINALIZAÇÃO de ontem ou hoje.
+    # Reentrega continua como pendência.
+    # ============================================================
+    hoje = datetime.now().date()
+    ontem = hoje - timedelta(days=1)
+
+    col_data_mov_finalizacao = encontrar_coluna(
+        df_pendencias,
+        ["DATA MOV. FINALIZAÇÃO", "DATA MOV FINALIZAÇÃO", "DATA MOV. FINALIZACAO"]
+    )
+
+    tratadas_torre = set()
+
+    if col_data_mov_finalizacao:
+        df_pendencias["_data_mov_finalizacao"] = pd.to_datetime(
+            df_pendencias[col_data_mov_finalizacao],
+            errors="coerce"
+        ).dt.date
+
+        tratadas_torre = set(
+            df_pendencias[
+                df_pendencias["_data_mov_finalizacao"].isin([ontem, hoje])
+            ]["awb_norm"]
+        )
+
     # CLASSIFICAÇÃO
     def classificar(row):
         awb = row["awb_norm"]
@@ -226,25 +271,40 @@ if arquivo_sistema and arquivo_consolidado:
         except:
             return "❓ SEM SLA"
         
-        em_finalizadas = awb in df_finalizadas["awb_norm"].values
-        em_pendencias = awb in df_pendencias["awb_norm"].values or awb in df_pendencia_corp["awb_norm"].values
+        em_pendencias = (
+            awb in df_pendencias["awb_norm"].values
+            or awb in df_pendencia_corp["awb_norm"].values
+        )
+
         em_avarias = awb in df_avarias["awb_norm"].values
         
         status_sistema = df_sistema[df_sistema["awb_norm"] == awb]["StatusDescription"].values
-        tem_pendente_entrega = any("Pendente" in str(s) and "Entrega" in str(s) for s in status_sistema) if len(status_sistema) > 0 else False
-        
-        if em_finalizadas and tem_pendente_entrega:
-            return "🔄 REENTREGA PENDENTE"
-        elif em_finalizadas:
+        tem_pendente_entrega = (
+            any("Pendente" in str(s) and "Entrega" in str(s) for s in status_sistema)
+            if len(status_sistema) > 0
+            else False
+        )
+
+        # REENTREGA CONTINUA COMO PENDÊNCIA
+        if tem_pendente_entrega:
+            return "⏳ PENDÊNCIA"
+
+        # TRATADO PELA TORRE APENAS COM DATA MOV. FINALIZAÇÃO DE ONTEM OU HOJE
+        elif awb in tratadas_torre:
             return "✅ FINALIZADO"
+
         elif em_pendencias:
             return "⏳ PENDÊNCIA"
+
         elif em_avarias:
             return "⚠️ AVARIA"
-        elif sla == hoje:          # ← NO PISO só se não estiver em nenhuma planilha
+
+        elif sla == hoje:
             return "🟠 NO PISO"
+
         elif sla < hoje:
             return "🔴 ATRASADA"
+
         else:
             return "🟢 MONITORAR"
     
@@ -282,7 +342,11 @@ if arquivo_sistema and arquivo_consolidado:
         dias_atraso = df_sistema[df_sistema["CLASSIFICACAO"] == "🔴 ATRASADA"]
         if len(dias_atraso) > 0:
             try:
-                dias_diff = [(datetime.now().date() - pd.to_datetime(s).date()).days for s in dias_atraso["SLA"] if not pd.isna(s)]
+                dias_diff = [
+                    (datetime.now().date() - pd.to_datetime(s).date()).days
+                    for s in dias_atraso["SLA"]
+                    if not pd.isna(s)
+                ]
                 media = sum(dias_diff) / len(dias_diff) if dias_diff else 0
                 st.metric("Média dias atrasadas", f"{media:.1f}".replace(".", ","))
             except:
@@ -329,7 +393,9 @@ if arquivo_sistema and arquivo_consolidado:
         
         if len(df_atraso) > 0:
             df_atraso["dias_atraso"] = df_atraso["SLA"].apply(
-                lambda x: (datetime.now().date() - pd.to_datetime(x).date()).days if not pd.isna(x) else 0
+                lambda x: (datetime.now().date() - pd.to_datetime(x).date()).days
+                if not pd.isna(x)
+                else 0
             )
             df_atraso = df_atraso.sort_values("dias_atraso", ascending=False)
             
@@ -337,7 +403,10 @@ if arquivo_sistema and arquivo_consolidado:
                 dias = row["dias_atraso"]
                 col1, col2, col3 = st.columns([1, 2, 2])
                 with col1:
-                    st.markdown(f"<div style='font-size:20px;font-weight:900;color:#FF2D2D'>{dias}</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div style='font-size:20px;font-weight:900;color:#FF2D2D'>{dias}</div>",
+                        unsafe_allow_html=True
+                    )
                 with col2:
                     st.write(f"**AWB:** {row['awb_norm']}")
                 with col3:
