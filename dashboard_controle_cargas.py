@@ -233,10 +233,6 @@ if arquivo_sistema and arquivo_consolidado:
         status_sistema = df_sistema[df_sistema["awb_norm"] == awb]["StatusDescription"].values
         tem_pendente_entrega = any("Pendente" in str(s) and "Entrega" in str(s) for s in status_sistema) if len(status_sistema) > 0 else False
         
-        # PRIORIDADE: SLA = HOJE (NO PISO) tem precedência
-        if sla == hoje:
-            return "🟠 NO PISO"
-        
         if em_finalizadas and tem_pendente_entrega:
             return "🔄 REENTREGA PENDENTE"
         elif em_finalizadas:
@@ -245,6 +241,8 @@ if arquivo_sistema and arquivo_consolidado:
             return "⏳ PENDÊNCIA"
         elif em_avarias:
             return "⚠️ AVARIA"
+        elif sla == hoje:          # ← NO PISO só se não estiver em nenhuma planilha
+            return "🟠 NO PISO"
         elif sla < hoje:
             return "🔴 ATRASADA"
         else:
