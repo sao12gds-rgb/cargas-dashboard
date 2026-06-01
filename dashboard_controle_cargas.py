@@ -240,7 +240,7 @@ if arquivo_sistema and arquivo_consolidado:
         if em_finalizadas and tem_pendente_entrega:
             return "🔄 REENTREGA PENDENTE"
         elif em_finalizadas:
-            return "✅ FINALIZADO"
+            return "✅ FINALIZADO NA PENDENCIA"
         elif em_pendencias:
             return "⏳ PENDÊNCIA"
         elif em_avarias:
