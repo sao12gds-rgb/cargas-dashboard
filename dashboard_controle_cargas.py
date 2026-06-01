@@ -393,7 +393,7 @@ if arquivo_sistema and arquivo_consolidado:
         st.markdown('<div class="section-title">Exportar Dados</div>', unsafe_allow_html=True)
         
         output = BytesIO()
-       with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             df_sistema.to_excel(writer, sheet_name="Todas as Cargas", index=False)
             df_sistema[df_sistema["CLASSIFICACAO"] == "🔴 ATRASADA"].to_excel(writer, sheet_name="Atrasadas", index=False)
             df_sistema[df_sistema["CLASSIFICACAO"] == "🔄 REENTREGA PENDENTE"].to_excel(writer, sheet_name="Reentrega", index=False)
