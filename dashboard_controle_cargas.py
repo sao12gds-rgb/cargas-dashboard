@@ -240,7 +240,7 @@ if arquivo_sistema and arquivo_consolidado:
         if em_finalizadas and tem_pendente_entrega:
             return "🔄 REENTREGA PENDENTE"
         elif em_finalizadas:
-            return "✅ FINALIZADO NA PENDENCIA"
+            return "✅ FINALIZADO"
         elif em_pendencias:
             return "⏳ PENDÊNCIA"
         elif em_avarias:
@@ -271,7 +271,7 @@ if arquivo_sistema and arquivo_consolidado:
     with col3:
         st.metric("🔄 Reentrega", reentrega)
     with col4:
-        st.metric("✅ Finalizadas", finalizado)
+        st.metric("✅ Finalizadas na Pendencia", finalizado)
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
