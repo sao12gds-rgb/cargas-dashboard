@@ -269,7 +269,7 @@ if arquivo_sistema and arquivo_consolidado:
     with col3:
         st.metric("🔄 Reentrega", reentrega)
     with col4:
-        st.metric("✅ Finalizadas na Pendencia", finalizado)
+        st.metric("✅ Tratadas pela Torre", finalizado + reentrega)
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
