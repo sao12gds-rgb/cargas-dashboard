@@ -118,6 +118,7 @@ def encontrar_coluna(df: pd.DataFrame, opcoes: list[str]) -> str | None:
         for col_lower, col_original in colunas_lower.items():
             if opcao_lower in col_lower or col_lower in opcao_lower:
                 return col_original
+    
     return None
 
 
@@ -144,6 +145,7 @@ with col2:
         key="consolidado"
     )
 
+
 # ============================================================
 # PROCESSAMENTO
 # ============================================================
@@ -155,6 +157,7 @@ if arquivo_sistema and arquivo_consolidado:
             df_sistema = pd.read_excel(arquivo_sistema, sheet_name="Report")
         else:
             df_sistema = pd.read_csv(arquivo_sistema)
+
         st.success(f"✅ {len(df_sistema)} linhas carregadas")
     
     with st.spinner("⏳ Carregando Planilha Consolidada..."):
@@ -180,9 +183,20 @@ if arquivo_sistema and arquivo_consolidado:
     # ENCONTRAR COLUNAS
     st.info("🔍 Buscando colunas...")
     
-    col_awb_sistema = encontrar_coluna(df_sistema, ["AWB", "awb", "N. Rastreamento", "rastreamento", "numero"])
-    col_sla_sistema = encontrar_coluna(df_sistema, ["SLA", "sla", "data", "vencimento", "prazo"])
-    col_status_sistema = encontrar_coluna(df_sistema, ["StatusDescription", "status", "situacao", "status description"])
+    col_awb_sistema = encontrar_coluna(
+        df_sistema,
+        ["AWB", "awb", "N. Rastreamento", "rastreamento", "numero"]
+    )
+
+    col_sla_sistema = encontrar_coluna(
+        df_sistema,
+        ["SLA", "sla", "data", "vencimento", "prazo"]
+    )
+
+    col_status_sistema = encontrar_coluna(
+        df_sistema,
+        ["StatusDescription", "status", "situacao", "status description"]
+    )
     
     st.write(f"✅ AWB: {col_awb_sistema}")
     st.write(f"✅ SLA: {col_sla_sistema}")
@@ -194,7 +208,7 @@ if arquivo_sistema and arquivo_consolidado:
         st.write("**Colunas Pendências:**", list(df_pendencias.columns))
         st.stop()
     
-    # Renomear colunas para padrão
+    # RENOMEAR COLUNAS DO SISTEMA
     df_sistema = df_sistema.rename(columns={
         col_awb_sistema: "AWB",
         col_sla_sistema: "SLA",
@@ -231,8 +245,9 @@ if arquivo_sistema and arquivo_consolidado:
 
     # ============================================================
     # FINALIZADAS DO DIA
+    # Regra:
     # Tudo que estiver na aba FINALIZADAS com data de hoje
-    # entra como Tratada pela Torre, mesmo fora do sistema.
+    # conta como Tratada pela Torre, mesmo fora do relatório do sistema.
     # ============================================================
     hoje = datetime.now().date()
 
@@ -244,7 +259,8 @@ if arquivo_sistema and arquivo_consolidado:
             "DATA FINALIZACAO",
             "DATA MOV. FINALIZAÇÃO",
             "DATA MOV FINALIZAÇÃO",
-            "DATA MOV. FINALIZACAO"
+            "DATA MOV. FINALIZACAO",
+            "DATA MOV FINALIZACAO"
         ]
     )
 
@@ -253,12 +269,14 @@ if arquivo_sistema and arquivo_consolidado:
     if col_data_finalizada:
         df_finalizadas["_data_finalizada"] = pd.to_datetime(
             df_finalizadas[col_data_finalizada],
-            errors="coerce"
+            errors="coerce",
+            dayfirst=True
         ).dt.date
 
         finalizadas_hoje_awbs = set(
             df_finalizadas[
-                df_finalizadas["_data_finalizada"] == hoje
+                (df_finalizadas["_data_finalizada"] == hoje)
+                & (df_finalizadas["awb_norm"] != "")
             ]["awb_norm"]
         )
 
@@ -271,11 +289,14 @@ if arquivo_sistema and arquivo_consolidado:
             return "❓ SEM SLA"
         
         try:
-            sla = pd.to_datetime(sla_str).date()
+            sla = pd.to_datetime(sla_str, errors="coerce", dayfirst=True).date()
             hoje = datetime.now().date()
         except:
             return "❓ SEM SLA"
         
+        if pd.isna(sla):
+            return "❓ SEM SLA"
+
         em_finalizadas_hoje = awb in finalizadas_hoje_awbs
 
         em_pendencias = (
@@ -297,7 +318,7 @@ if arquivo_sistema and arquivo_consolidado:
             else False
         )
         
-        # FINALIZADA DO DIA FAZ PARTE DE TRATADAS PELA TORRE
+        # FINALIZADA DO DIA = TRATADA PELA TORRE
         if em_finalizadas_hoje:
             return "✅ FINALIZADO"
 
@@ -324,10 +345,10 @@ if arquivo_sistema and arquivo_consolidado:
     df_sistema["CLASSIFICACAO"] = df_sistema.apply(classificar, axis=1)
 
     # ============================================================
-    # INCLUI FINALIZADAS DO DIA QUE NÃO ESTÃO NO SISTEMA
-    # Sem alterar layout, apenas adiciona na base final para contar.
+    # INCLUIR FINALIZADAS DO DIA QUE NÃO ESTÃO NO SISTEMA
     # ============================================================
-    finalizadas_fora_sistema = finalizadas_hoje_awbs - set(df_sistema["awb_norm"])
+    awbs_sistema = set(df_sistema["awb_norm"])
+    finalizadas_fora_sistema = finalizadas_hoje_awbs - awbs_sistema
 
     if len(finalizadas_fora_sistema) > 0:
         df_extra_finalizadas = pd.DataFrame({
@@ -355,33 +376,47 @@ if arquivo_sistema and arquivo_consolidado:
     no_piso = len(df_sistema[df_sistema["CLASSIFICACAO"] == "🟠 NO PISO"])
     
     col1, col2, col3, col4 = st.columns(4)
+
     with col1:
         st.metric("Total AWBs", total)
+
     with col2:
         st.metric("🔴 Atrasadas", atrasadas)
+
     with col3:
         st.metric("🔄 Reentrega", reentrega)
+
     with col4:
         st.metric("✅ Tratadas pela Torre", finalizado)
     
     col1, col2, col3, col4 = st.columns(4)
+
     with col1:
         st.metric("⏳ Pendências", pendencias)
+
     with col2:
         st.metric("⚠️ Avarias", avarias)
+
     with col3:
         st.metric("🟠 No Piso", no_piso)
+
     with col4:
         dias_atraso = df_sistema[df_sistema["CLASSIFICACAO"] == "🔴 ATRASADA"]
+
         if len(dias_atraso) > 0:
             try:
                 dias_diff = [
-                    (datetime.now().date() - pd.to_datetime(s).date()).days
+                    (datetime.now().date() - pd.to_datetime(s, errors="coerce", dayfirst=True).date()).days
                     for s in dias_atraso["SLA"]
                     if not pd.isna(s)
                 ]
+
                 media = sum(dias_diff) / len(dias_diff) if dias_diff else 0
-                st.metric("Média dias atrasadas", f"{media:.1f}".replace(".", ","))
+
+                st.metric(
+                    "Média dias atrasadas",
+                    f"{media:.1f}".replace(".", ",")
+                )
             except:
                 st.metric("Média dias atrasadas", "-")
         else:
@@ -399,49 +434,62 @@ if arquivo_sistema and arquivo_consolidado:
     
     with tab1:
         st.markdown('<div class="section-title">Gráficos de Status</div>', unsafe_allow_html=True)
+
         col1, col2 = st.columns(2)
         
         with col1:
             status_counts = df_sistema["CLASSIFICACAO"].value_counts()
+
             fig_pie = px.pie(
                 values=status_counts.values,
                 names=status_counts.index,
                 title="Distribuição de Status"
             )
+
             st.plotly_chart(fig_pie, use_container_width=True)
         
         with col2:
             status_counts2 = df_sistema["CLASSIFICACAO"].value_counts()
+
             fig_bar = px.bar(
                 x=status_counts2.index,
                 y=status_counts2.values,
                 title="Contagem por Status"
             )
+
             st.plotly_chart(fig_bar, use_container_width=True)
     
     with tab2:
         st.markdown('<div class="section-title">Cargas Atrasadas</div>', unsafe_allow_html=True)
         
-        df_atraso = df_sistema[df_sistema["CLASSIFICACAO"] == "🔴 ATRASADA"].copy()
+        df_atraso = df_sistema[
+            df_sistema["CLASSIFICACAO"] == "🔴 ATRASADA"
+        ].copy()
         
         if len(df_atraso) > 0:
             df_atraso["dias_atraso"] = df_atraso["SLA"].apply(
-                lambda x: (datetime.now().date() - pd.to_datetime(x).date()).days
-                if not pd.isna(x)
-                else 0
+                lambda x: (
+                    datetime.now().date()
+                    - pd.to_datetime(x, errors="coerce", dayfirst=True).date()
+                ).days if not pd.isna(x) else 0
             )
+
             df_atraso = df_atraso.sort_values("dias_atraso", ascending=False)
             
             for _, row in df_atraso.iterrows():
                 dias = row["dias_atraso"]
+
                 col1, col2, col3 = st.columns([1, 2, 2])
+
                 with col1:
                     st.markdown(
                         f"<div style='font-size:20px;font-weight:900;color:#FF2D2D'>{dias}</div>",
                         unsafe_allow_html=True
                     )
+
                 with col2:
                     st.write(f"**AWB:** {row['awb_norm']}")
+
                 with col3:
                     st.write(f"**SLA:** {row['SLA']}")
         else:
@@ -450,42 +498,57 @@ if arquivo_sistema and arquivo_consolidado:
     with tab3:
         st.markdown('<div class="section-title">Reentrega Pendente</div>', unsafe_allow_html=True)
         
-        df_reen = df_sistema[df_sistema["CLASSIFICACAO"] == "🔄 REENTREGA PENDENTE"]
+        df_reen = df_sistema[
+            df_sistema["CLASSIFICACAO"] == "🔄 REENTREGA PENDENTE"
+        ]
         
         if len(df_reen) > 0:
-            st.dataframe(df_reen[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
-                "awb_norm": "AWB",
-                "SLA": "SLA",
-                "StatusDescription": "Status"
-            }), use_container_width=True)
+            st.dataframe(
+                df_reen[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
+                    "awb_norm": "AWB",
+                    "SLA": "SLA",
+                    "StatusDescription": "Status"
+                }),
+                use_container_width=True
+            )
         else:
             st.info("ℹ️ Nenhuma reentrega pendente")
     
     with tab4:
         st.markdown('<div class="section-title">Pendências</div>', unsafe_allow_html=True)
         
-        df_pend = df_sistema[df_sistema["CLASSIFICACAO"] == "⏳ PENDÊNCIA"]
+        df_pend = df_sistema[
+            df_sistema["CLASSIFICACAO"] == "⏳ PENDÊNCIA"
+        ]
         
         if len(df_pend) > 0:
-            st.dataframe(df_pend[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
-                "awb_norm": "AWB",
-                "SLA": "SLA",
-                "StatusDescription": "Status"
-            }), use_container_width=True)
+            st.dataframe(
+                df_pend[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
+                    "awb_norm": "AWB",
+                    "SLA": "SLA",
+                    "StatusDescription": "Status"
+                }),
+                use_container_width=True
+            )
         else:
             st.info("ℹ️ Nenhuma pendência")
     
     with tab5:
         st.markdown('<div class="section-title">Avarias</div>', unsafe_allow_html=True)
         
-        df_avar = df_sistema[df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"]
+        df_avar = df_sistema[
+            df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"
+        ]
         
         if len(df_avar) > 0:
-            st.dataframe(df_avar[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
-                "awb_norm": "AWB",
-                "SLA": "SLA",
-                "StatusDescription": "Status"
-            }), use_container_width=True)
+            st.dataframe(
+                df_avar[["awb_norm", "SLA", "StatusDescription"]].rename(columns={
+                    "awb_norm": "AWB",
+                    "SLA": "SLA",
+                    "StatusDescription": "Status"
+                }),
+                use_container_width=True
+            )
         else:
             st.info("ℹ️ Nenhuma avaria")
     
@@ -493,15 +556,56 @@ if arquivo_sistema and arquivo_consolidado:
         st.markdown('<div class="section-title">Exportar Dados</div>', unsafe_allow_html=True)
         
         output = BytesIO()
+
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            df_sistema.to_excel(writer, sheet_name="Todas as Cargas", index=False)
-            df_sistema[df_sistema["CLASSIFICACAO"] == "🔴 ATRASADA"].to_excel(writer, sheet_name="Atrasadas", index=False)
-            df_sistema[df_sistema["CLASSIFICACAO"] == "🔄 REENTREGA PENDENTE"].to_excel(writer, sheet_name="Reentrega", index=False)
-            df_sistema[df_sistema["CLASSIFICACAO"] == "⏳ PENDÊNCIA"].to_excel(writer, sheet_name="Pendências", index=False)
-            df_sistema[df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"].to_excel(writer, sheet_name="Avarias", index=False)
-            df_sistema[df_sistema["CLASSIFICACAO"] == "🟠 NO PISO"].to_excel(writer, sheet_name="No Piso", index=False)
+            df_sistema.to_excel(
+                writer,
+                sheet_name="Todas as Cargas",
+                index=False
+            )
+
+            df_sistema[
+                df_sistema["CLASSIFICACAO"] == "🔴 ATRASADA"
+            ].to_excel(
+                writer,
+                sheet_name="Atrasadas",
+                index=False
+            )
+
+            df_sistema[
+                df_sistema["CLASSIFICACAO"] == "🔄 REENTREGA PENDENTE"
+            ].to_excel(
+                writer,
+                sheet_name="Reentrega",
+                index=False
+            )
+
+            df_sistema[
+                df_sistema["CLASSIFICACAO"] == "⏳ PENDÊNCIA"
+            ].to_excel(
+                writer,
+                sheet_name="Pendências",
+                index=False
+            )
+
+            df_sistema[
+                df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"
+            ].to_excel(
+                writer,
+                sheet_name="Avarias",
+                index=False
+            )
+
+            df_sistema[
+                df_sistema["CLASSIFICACAO"] == "🟠 NO PISO"
+            ].to_excel(
+                writer,
+                sheet_name="No Piso",
+                index=False
+            )
         
         output.seek(0)
+
         st.download_button(
             label="📥 Baixar Excel (Múltiplas abas)",
             data=output.getvalue(),
