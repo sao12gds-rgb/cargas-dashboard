@@ -228,7 +228,40 @@ if arquivo_sistema and arquivo_consolidado:
         df_finalizadas["awb_norm"] = df_finalizadas[col_awb_final].apply(normalizar_awb)
     else:
         df_finalizadas["awb_norm"] = ""
-    
+
+    # ============================================================
+    # FINALIZADAS DO DIA
+    # Tudo que estiver na aba FINALIZADAS com data de hoje
+    # entra como Tratada pela Torre, mesmo fora do sistema.
+    # ============================================================
+    hoje = datetime.now().date()
+
+    col_data_finalizada = encontrar_coluna(
+        df_finalizadas,
+        [
+            "DATA",
+            "DATA FINALIZAÇÃO",
+            "DATA FINALIZACAO",
+            "DATA MOV. FINALIZAÇÃO",
+            "DATA MOV FINALIZAÇÃO",
+            "DATA MOV. FINALIZACAO"
+        ]
+    )
+
+    finalizadas_hoje_awbs = set()
+
+    if col_data_finalizada:
+        df_finalizadas["_data_finalizada"] = pd.to_datetime(
+            df_finalizadas[col_data_finalizada],
+            errors="coerce"
+        ).dt.date
+
+        finalizadas_hoje_awbs = set(
+            df_finalizadas[
+                df_finalizadas["_data_finalizada"] == hoje
+            ]["awb_norm"]
+        )
+
     # CLASSIFICAÇÃO
     def classificar(row):
         awb = row["awb_norm"]
@@ -243,11 +276,13 @@ if arquivo_sistema and arquivo_consolidado:
         except:
             return "❓ SEM SLA"
         
-        em_finalizadas = awb in df_finalizadas["awb_norm"].values
+        em_finalizadas_hoje = awb in finalizadas_hoje_awbs
+
         em_pendencias = (
             awb in df_pendencias["awb_norm"].values
             or awb in df_pendencia_corp["awb_norm"].values
         )
+
         em_avarias = awb in df_avarias["awb_norm"].values
         
         status_sistema = df_sistema[df_sistema["awb_norm"] == awb]["StatusDescription"].values
@@ -262,13 +297,13 @@ if arquivo_sistema and arquivo_consolidado:
             else False
         )
         
-        # REENTREGA FAZ PARTE DA PENDÊNCIA
-        if em_finalizadas and tem_pendente_entrega:
-            return "⏳ PENDÊNCIA"
-
-        # FINALIZADA FAZ PARTE DE TRATADAS PELA TORRE
-        elif em_finalizadas:
+        # FINALIZADA DO DIA FAZ PARTE DE TRATADAS PELA TORRE
+        if em_finalizadas_hoje:
             return "✅ FINALIZADO"
+
+        # REENTREGA NÃO É ITEM SEPARADO: SE NÃO FINALIZOU, É PENDÊNCIA
+        elif tem_pendente_entrega:
+            return "⏳ PENDÊNCIA"
 
         # DEMAIS REGRAS MANTIDAS
         elif em_pendencias:
@@ -287,6 +322,26 @@ if arquivo_sistema and arquivo_consolidado:
             return "🟢 MONITORAR"
     
     df_sistema["CLASSIFICACAO"] = df_sistema.apply(classificar, axis=1)
+
+    # ============================================================
+    # INCLUI FINALIZADAS DO DIA QUE NÃO ESTÃO NO SISTEMA
+    # Sem alterar layout, apenas adiciona na base final para contar.
+    # ============================================================
+    finalizadas_fora_sistema = finalizadas_hoje_awbs - set(df_sistema["awb_norm"])
+
+    if len(finalizadas_fora_sistema) > 0:
+        df_extra_finalizadas = pd.DataFrame({
+            "AWB": list(finalizadas_fora_sistema),
+            "SLA": "",
+            "StatusDescription": "FINALIZADA NA ABA FINALIZADAS",
+            "awb_norm": list(finalizadas_fora_sistema),
+            "CLASSIFICACAO": "✅ FINALIZADO"
+        })
+
+        df_sistema = pd.concat(
+            [df_sistema, df_extra_finalizadas],
+            ignore_index=True
+        )
     
     # RESUMO
     st.markdown('<div class="section-title">📊 Resumo Executivo</div>', unsafe_allow_html=True)
