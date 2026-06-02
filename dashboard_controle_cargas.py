@@ -213,26 +213,38 @@ if arquivo_sistema and arquivo_consolidado:
         df_finalizadas["awb_norm"]    = df_finalizadas[col_awb_final].apply(normalizar_awb)
 
     # ============================================================
-    # AWBs FINALIZADAS HOJE → TRATADAS PELA TORRE
     # ============================================================
-    hoje = datetime.now().date()
+# FINALIZADAS → TRATADAS PELA TORRE
+# ============================================================
+hoje = datetime.now().date()
 
-    col_data_final = encontrar_coluna(df_finalizadas, [
-        "DATA", "DATA FINALIZAÇÃO", "DATA FINALIZACAO",
-        "DATA MOV. FINALIZAÇÃO", "DATA MOV FINALIZAÇÃO",
-        "DATA MOV. FINALIZACAO", "DATA MOV FINALIZACAO"
-    ])
+col_data_final = encontrar_coluna(df_finalizadas, [
+    "DATA", "DATA FINALIZAÇÃO", "DATA FINALIZACAO",
+    "DATA MOV. FINALIZAÇÃO", "DATA MOV FINALIZAÇÃO",
+    "DATA MOV. FINALIZACAO", "DATA MOV FINALIZACAO"
+])
 
-    if col_data_final:
-        df_finalizadas["_data_fin"] = pd.to_datetime(
-            df_finalizadas[col_data_final], errors="coerce"
-        ).dt.date
-        finalizadas_hoje = set(
-            df_finalizadas[df_finalizadas["_data_fin"] == hoje]["awb_norm"]
-        )
-    else:
-        # sem coluna de data: considera TODAS as finalizadas como tratadas
-        finalizadas_hoje = set(df_finalizadas["awb_norm"])
+# TODAS AS AWBs DA ABA FINALIZADAS
+finalizadas_hoje = set(df_finalizadas["awb_norm"])
+
+# CONTADOR MENSAL
+if col_data_final:
+
+    df_finalizadas["_data_fin"] = pd.to_datetime(
+        df_finalizadas[col_data_final],
+        errors="coerce"
+    ).dt.date
+
+    finalizadas_mes = len(
+        df_finalizadas[
+            (df_finalizadas["_data_fin"].notna()) &
+            (df_finalizadas["_data_fin"].apply(lambda d: d.month) == hoje.month) &
+            (df_finalizadas["_data_fin"].apply(lambda d: d.year) == hoje.year)
+        ]
+    )
+
+else:
+    finalizadas_mes = len(df_finalizadas)
 
     # CLASSIFICAÇÃO
     def classificar(row):
