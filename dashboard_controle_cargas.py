@@ -220,19 +220,27 @@ if arquivo_sistema and arquivo_consolidado:
     hoje = datetime.now().date()
 
     col_data_final = encontrar_coluna(df_finalizadas, [
-        "DATA", "DATA FINALIZAÇÃO", "DATA FINALIZACAO",
-        "DATA MOV. FINALIZAÇÃO", "DATA MOV FINALIZAÇÃO",
-        "DATA MOV. FINALIZACAO", "DATA MOV FINALIZACAO"
+        "DATA MOV. FINALIZAÇÃO",
+        "DATA MOV FINALIZAÇÃO",
+        "DATA MOV. FINALIZACAO",
+        "DATA MOV FINALIZACAO",
+        "DATA FINALIZAÇÃO",
+        "DATA FINALIZACAO",
+        "DATA"
     ])
 
     # Todas as AWBs da aba FINALIZADAS entram como tratadas pela Torre
     finalizadas_torre = set(df_finalizadas["awb_norm"])
 
-    # Card mensal otimizado
+    # ============================================================
+    # FINALIZADAS NO MÊS
+    # ============================================================
     if col_data_final:
+
         df_finalizadas["_data_fin"] = pd.to_datetime(
             df_finalizadas[col_data_final],
-            errors="coerce"
+            errors="coerce",
+            dayfirst=True
         )
 
         finalizadas_mes = len(
@@ -241,8 +249,9 @@ if arquivo_sistema and arquivo_consolidado:
                 (df_finalizadas["_data_fin"].dt.year == hoje.year)
             ]
         )
+
     else:
-        finalizadas_mes = len(df_finalizadas)
+        finalizadas_mes = 0
 
     # ============================================================
     # CLASSIFICAÇÃO
@@ -480,4 +489,5 @@ if arquivo_sistema and arquivo_consolidado:
             mime="text/csv"
         )
 
+    st.markdown("✅ Dados processados e classificados com sucesso!")
     st.markdown("✅ Dados processados e classificados com sucesso!")
