@@ -229,27 +229,32 @@ if arquivo_sistema and arquivo_consolidado:
         "DATA"
     ])
 
-    # Todas as AWBs da aba FINALIZADAS entram como tratadas pela Torre
-    finalizadas_torre = set(df_finalizadas["awb_norm"])
+    if col_data_final:
+        df_finalizadas["_data_fin"] = pd.to_datetime(
+            df_finalizadas[col_data_final],
+            errors="coerce",
+            dayfirst=True
+        ).dt.date
+
+        # Tratadas pela Torre = somente AWBs finalizadas no dia atual
+        finalizadas_torre = set(
+            df_finalizadas[
+                df_finalizadas["_data_fin"] == hoje
+            ]["awb_norm"]
+        )
+    else:
+        finalizadas_torre = set()
 
     # ============================================================
     # FINALIZADAS NO MÊS
     # ============================================================
     if col_data_final:
-
-        df_finalizadas["_data_fin"] = pd.to_datetime(
-            df_finalizadas[col_data_final],
-            errors="coerce",
-            dayfirst=True
-        )
-
         finalizadas_mes = len(
             df_finalizadas[
-                (df_finalizadas["_data_fin"].dt.month == hoje.month) &
-                (df_finalizadas["_data_fin"].dt.year == hoje.year)
+                (pd.to_datetime(df_finalizadas[col_data_final], errors="coerce", dayfirst=True).dt.month == hoje.month) &
+                (pd.to_datetime(df_finalizadas[col_data_final], errors="coerce", dayfirst=True).dt.year == hoje.year)
             ]
         )
-
     else:
         finalizadas_mes = 0
 
@@ -489,5 +494,4 @@ if arquivo_sistema and arquivo_consolidado:
             mime="text/csv"
         )
 
-    st.markdown("✅ Dados processados e classificados com sucesso!")
     st.markdown("✅ Dados processados e classificados com sucesso!")
