@@ -71,7 +71,7 @@ st.markdown("""
 <div class="hero">
     <div class="gds-badge">🚚 GDS LOGÍSTICA</div>
     <h1>📦 Dashboard de Controle de Cargas</h1>
-    <p>Análise com destaque em DIAS EM ATRASO e REENTREGA PENDENTE</p>
+    <p>Análise com destaque em DIAS EM ATRASO, REENTREGA PENDENTE e ROTAS CRIADAS NO DIA</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -215,10 +215,43 @@ if arquivo_sistema and arquivo_consolidado:
     df_finalizadas["awb_norm"] = df_finalizadas[col_awb_final].apply(normalizar_awb)
 
     # ============================================================
-    # FINALIZADAS → TRATADAS PELA TORRE
+    # DATA ATUAL
     # ============================================================
     hoje = datetime.now().date()
 
+    # ============================================================
+    # ROTAS CRIADAS HOJE
+    # ============================================================
+    col_data_rota = encontrar_coluna(df_sistema, [
+        "DATA CRIAÇÃO ROTA",
+        "DATA CRIACAO ROTA",
+        "DATA DA ROTA",
+        "DATA ROTA",
+        "ROTA CRIADA EM",
+        "CRIACAO ROTA",
+        "CRIAÇÃO ROTA",
+        "DataRota",
+        "RouteDate"
+    ])
+
+    if col_data_rota:
+        df_sistema["_data_rota"] = pd.to_datetime(
+            df_sistema[col_data_rota],
+            errors="coerce",
+            dayfirst=True
+        ).dt.date
+
+        rotas_criadas_hoje = set(
+            df_sistema[
+                df_sistema["_data_rota"] == hoje
+            ]["awb_norm"]
+        )
+    else:
+        rotas_criadas_hoje = set()
+
+    # ============================================================
+    # FINALIZADAS → TRATADAS PELA TORRE
+    # ============================================================
     col_data_final = encontrar_coluna(df_finalizadas, [
         "DATA MOV. FINALIZAÇÃO",
         "DATA MOV FINALIZAÇÃO",
@@ -236,7 +269,6 @@ if arquivo_sistema and arquivo_consolidado:
             dayfirst=True
         ).dt.date
 
-        # Tratadas pela Torre = somente AWBs finalizadas no dia atual
         finalizadas_torre = set(
             df_finalizadas[
                 df_finalizadas["_data_fin"] == hoje
@@ -285,6 +317,9 @@ if arquivo_sistema and arquivo_consolidado:
         if awb in avarias_set:
             return "⚠️ AVARIA"
 
+        if awb in rotas_criadas_hoje:
+            return "🚚 ROTA CRIADA HOJE"
+
         if sla == hoje:
             return "🟠 NO PISO"
 
@@ -306,6 +341,7 @@ if arquivo_sistema and arquivo_consolidado:
     pendencias = len(df_sistema[df_sistema["CLASSIFICACAO"] == "⏳ PENDÊNCIA"])
     avarias = len(df_sistema[df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"])
     no_piso = len(df_sistema[df_sistema["CLASSIFICACAO"] == "🟠 NO PISO"])
+    rota_hoje = len(df_sistema[df_sistema["CLASSIFICACAO"] == "🚚 ROTA CRIADA HOJE"])
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -333,6 +369,11 @@ if arquivo_sistema and arquivo_consolidado:
         st.metric("🟠 No Piso", no_piso)
 
     with col4:
+        st.metric("🚚 Rota Criada Hoje", rota_hoje)
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
         dias_atraso = df_sistema[df_sistema["CLASSIFICACAO"] == "🔴 ATRASADA"]
 
         if len(dias_atraso) > 0:
@@ -352,12 +393,13 @@ if arquivo_sistema and arquivo_consolidado:
     # ============================================================
     # ABAS
     # ============================================================
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Visual",
         "🔴 Atrasadas",
         "✅ Tratadas pela Torre",
         "⏳ Pendências",
         "⚠️ Avarias",
+        "🚚 Rota Criada Hoje",
         "📥 Exportar"
     ])
 
@@ -466,6 +508,29 @@ if arquivo_sistema and arquivo_consolidado:
             st.info("ℹ️ Nenhuma avaria")
 
     with tab6:
+        st.markdown('<div class="section-title">Rotas Criadas Hoje</div>', unsafe_allow_html=True)
+
+        df_rota_hoje = df_sistema[df_sistema["CLASSIFICACAO"] == "🚚 ROTA CRIADA HOJE"]
+
+        if len(df_rota_hoje) > 0:
+            colunas_rota = ["awb_norm", "SLA", "StatusDescription"]
+
+            if col_data_rota and col_data_rota in df_rota_hoje.columns:
+                colunas_rota.append(col_data_rota)
+
+            st.dataframe(
+                df_rota_hoje[colunas_rota].rename(columns={
+                    "awb_norm": "AWB",
+                    "SLA": "SLA",
+                    "StatusDescription": "Status",
+                    col_data_rota: "Data Criação Rota" if col_data_rota else col_data_rota
+                }),
+                use_container_width=True
+            )
+        else:
+            st.info("ℹ️ Nenhuma rota criada hoje identificada")
+
+    with tab7:
         st.markdown('<div class="section-title">Exportar Dados</div>', unsafe_allow_html=True)
 
         output = BytesIO()
@@ -477,6 +542,7 @@ if arquivo_sistema and arquivo_consolidado:
             df_sistema[df_sistema["CLASSIFICACAO"] == "⏳ PENDÊNCIA"].to_excel(writer, sheet_name="Pendências", index=False)
             df_sistema[df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"].to_excel(writer, sheet_name="Avarias", index=False)
             df_sistema[df_sistema["CLASSIFICACAO"] == "🟠 NO PISO"].to_excel(writer, sheet_name="No Piso", index=False)
+            df_sistema[df_sistema["CLASSIFICACAO"] == "🚚 ROTA CRIADA HOJE"].to_excel(writer, sheet_name="Rota Criada Hoje", index=False)
 
         output.seek(0)
 
