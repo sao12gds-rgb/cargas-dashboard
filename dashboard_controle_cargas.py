@@ -113,28 +113,36 @@ def encontrar_coluna(df: pd.DataFrame, opcoes: list[str]) -> str | None:
 # ============================================================
 st.markdown('<div class="section-title">📁 Carregar Dados</div>', unsafe_allow_html=True)
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.info("**1️⃣ Relatório do Sistema** (CSV ou Excel)")
+    st.info("**1️⃣ Relatório do Sistema**")
     arquivo_sistema = st.file_uploader(
-        "Selecione o arquivo",
+        "Selecione o arquivo do sistema",
         type=["xlsx", "xls", "csv"],
         key="sistema"
     )
 
 with col2:
-    st.info("**2️⃣ Planilha Consolidada** (Excel com 4 abas)")
+    st.info("**2️⃣ Planilha Consolidada**")
     arquivo_consolidado = st.file_uploader(
-        "Selecione o arquivo",
+        "Selecione a planilha consolidada",
         type=["xlsx", "xls"],
         key="consolidado"
+    )
+
+with col3:
+    st.info("**3️⃣ Relatório de Rotas / OS**")
+    arquivo_rotas = st.file_uploader(
+        "Selecione o relatório de rotas",
+        type=["xlsx", "xls"],
+        key="rotas"
     )
 
 # ============================================================
 # PROCESSAMENTO
 # ============================================================
-if arquivo_sistema and arquivo_consolidado:
+if arquivo_sistema and arquivo_consolidado and arquivo_rotas:
 
     with st.spinner("⏳ Carregando Relatório do Sistema..."):
         if "xlsx" in arquivo_sistema.name or "xls" in arquivo_sistema.name:
@@ -142,7 +150,7 @@ if arquivo_sistema and arquivo_consolidado:
         else:
             df_sistema = pd.read_csv(arquivo_sistema)
 
-        st.success(f"✅ {len(df_sistema)} linhas carregadas")
+        st.success(f"✅ Sistema: {len(df_sistema)} linhas carregadas")
 
     with st.spinner("⏳ Carregando Planilha Consolidada..."):
         df_pendencias = pd.read_excel(arquivo_consolidado, sheet_name="PENDENCIAS")
@@ -163,6 +171,16 @@ if arquivo_sistema and arquivo_consolidado:
             f"AVARIAS: {len(df_avarias)} | "
             f"FINALIZADAS: {len(df_finalizadas)}"
         )
+
+    with st.spinner("⏳ Carregando Relatório de Rotas..."):
+        try:
+            df_rotas = pd.read_excel(arquivo_rotas, sheet_name="OS")
+        except:
+            df_rotas = pd.read_excel(arquivo_rotas)
+
+        df_rotas.columns = df_rotas.columns.str.strip()
+
+        st.success(f"✅ Rotas / OS: {len(df_rotas)} linhas carregadas")
 
     # ============================================================
     # ENCONTRAR COLUNAS
@@ -187,9 +205,36 @@ if arquivo_sistema and arquivo_consolidado:
     col_awb_avar = encontrar_coluna(df_avarias, ["AWB", "awb", "N. Rastreamento"])
     col_awb_final = encontrar_coluna(df_finalizadas, ["AWB", "awb", "N. Rastreamento"])
 
+    col_awb_rota = encontrar_coluna(df_rotas, [
+        "Pedido",
+        "AWB",
+        "awb",
+        "N. Rastreamento",
+        "Código do volume",
+        "Codigo do volume",
+        "Volume"
+    ])
+
+    col_data_rota = encontrar_coluna(df_rotas, [
+        "Data da Rota",
+        "DATA DA ROTA",
+        "Data Rota",
+        "DATA ROTA"
+    ])
+
+    col_rota = encontrar_coluna(df_rotas, ["Rota"])
+    col_entregador = encontrar_coluna(df_rotas, ["Nome Entregador", "Entregador"])
+    col_status_rota = encontrar_coluna(df_rotas, ["Status"])
+
     if not col_awb_final:
         st.error("❌ Coluna AWB não encontrada na aba FINALIZADAS.")
         st.write("**Colunas da aba FINALIZADAS:**", list(df_finalizadas.columns))
+        st.stop()
+
+    if not col_awb_rota or not col_data_rota:
+        st.error("❌ Colunas obrigatórias não encontradas no relatório de rotas.")
+        st.write("O relatório precisa ter uma coluna de AWB/Pedido e uma coluna Data da Rota.")
+        st.write("**Colunas do relatório de rotas:**", list(df_rotas.columns))
         st.stop()
 
     # ============================================================
@@ -213,6 +258,7 @@ if arquivo_sistema and arquivo_consolidado:
         df_avarias["awb_norm"] = ""
 
     df_finalizadas["awb_norm"] = df_finalizadas[col_awb_final].apply(normalizar_awb)
+    df_rotas["awb_norm"] = df_rotas[col_awb_rota].apply(normalizar_awb)
 
     # ============================================================
     # DATA ATUAL
@@ -220,34 +266,17 @@ if arquivo_sistema and arquivo_consolidado:
     hoje = datetime.now().date()
 
     # ============================================================
-    # ROTAS CRIADAS HOJE
+    # ROTAS CRIADAS / PROGRAMADAS PARA HOJE
     # ============================================================
-    col_data_rota = encontrar_coluna(df_sistema, [
-        "DATA CRIAÇÃO ROTA",
-        "DATA CRIACAO ROTA",
-        "DATA DA ROTA",
-        "DATA ROTA",
-        "ROTA CRIADA EM",
-        "CRIACAO ROTA",
-        "CRIAÇÃO ROTA",
-        "DataRota",
-        "RouteDate"
-    ])
+    df_rotas["_data_rota"] = pd.to_datetime(
+        df_rotas[col_data_rota],
+        errors="coerce",
+        dayfirst=True
+    ).dt.date
 
-    if col_data_rota:
-        df_sistema["_data_rota"] = pd.to_datetime(
-            df_sistema[col_data_rota],
-            errors="coerce",
-            dayfirst=True
-        ).dt.date
+    df_rotas_hoje = df_rotas[df_rotas["_data_rota"] == hoje].copy()
 
-        rotas_criadas_hoje = set(
-            df_sistema[
-                df_sistema["_data_rota"] == hoje
-            ]["awb_norm"]
-        )
-    else:
-        rotas_criadas_hoje = set()
+    rotas_criadas_hoje = set(df_rotas_hoje["awb_norm"])
 
     # ============================================================
     # FINALIZADAS → TRATADAS PELA TORRE
@@ -510,25 +539,38 @@ if arquivo_sistema and arquivo_consolidado:
     with tab6:
         st.markdown('<div class="section-title">Rotas Criadas Hoje</div>', unsafe_allow_html=True)
 
-        df_rota_hoje = df_sistema[df_sistema["CLASSIFICACAO"] == "🚚 ROTA CRIADA HOJE"]
+        df_rota_classificada = df_sistema[
+            df_sistema["CLASSIFICACAO"] == "🚚 ROTA CRIADA HOJE"
+        ].copy()
 
-        if len(df_rota_hoje) > 0:
-            colunas_rota = ["awb_norm", "SLA", "StatusDescription"]
+        if len(df_rota_classificada) > 0:
+            colunas_rotas_exibir = ["awb_norm", col_data_rota]
 
-            if col_data_rota and col_data_rota in df_rota_hoje.columns:
-                colunas_rota.append(col_data_rota)
+            if col_rota:
+                colunas_rotas_exibir.append(col_rota)
+
+            if col_entregador:
+                colunas_rotas_exibir.append(col_entregador)
+
+            if col_status_rota:
+                colunas_rotas_exibir.append(col_status_rota)
+
+            df_rota_info = df_rotas_hoje[colunas_rotas_exibir].copy()
+
+            df_rota_info = df_rota_info.rename(columns={
+                "awb_norm": "AWB",
+                col_data_rota: "Data da Rota",
+                col_rota: "Rota" if col_rota else col_rota,
+                col_entregador: "Entregador" if col_entregador else col_entregador,
+                col_status_rota: "Status Rota" if col_status_rota else col_status_rota
+            })
 
             st.dataframe(
-                df_rota_hoje[colunas_rota].rename(columns={
-                    "awb_norm": "AWB",
-                    "SLA": "SLA",
-                    "StatusDescription": "Status",
-                    col_data_rota: "Data Criação Rota" if col_data_rota else col_data_rota
-                }),
+                df_rota_info,
                 use_container_width=True
             )
         else:
-            st.info("ℹ️ Nenhuma rota criada hoje identificada")
+            st.info("ℹ️ Nenhuma rota criada para hoje identificada")
 
     with tab7:
         st.markdown('<div class="section-title">Exportar Dados</div>', unsafe_allow_html=True)
@@ -543,6 +585,7 @@ if arquivo_sistema and arquivo_consolidado:
             df_sistema[df_sistema["CLASSIFICACAO"] == "⚠️ AVARIA"].to_excel(writer, sheet_name="Avarias", index=False)
             df_sistema[df_sistema["CLASSIFICACAO"] == "🟠 NO PISO"].to_excel(writer, sheet_name="No Piso", index=False)
             df_sistema[df_sistema["CLASSIFICACAO"] == "🚚 ROTA CRIADA HOJE"].to_excel(writer, sheet_name="Rota Criada Hoje", index=False)
+            df_rotas_hoje.to_excel(writer, sheet_name="Base Rotas Hoje", index=False)
 
         output.seek(0)
 
